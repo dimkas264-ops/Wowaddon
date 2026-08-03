@@ -14,16 +14,23 @@ end
 
 local L = addon.locale.Get
 
+print("RXP GuideWindow.lua loaded - v2")
+
+-- Fallback для шрифта (если еще не инициализирован)
+addon.font = addon.font or "Fonts\\FRIZQT__.TTF"
+
 -- ============================================================
 -- 3.3.5 BACKDROP FIX
--- В 3.3.5 SetBackdrop работает, но нужно правильно задавать параметры
 -- ============================================================
 
-function addon.SetResizeBounds(frame, width, height)
+function addon.SetResizeBounds(frame, minWidth, minHeight, maxWidth, maxHeight)
     if frame.SetResizeBounds then
-        frame:SetResizeBounds(width, height)
+        frame:SetResizeBounds(minWidth, minHeight, maxWidth, maxHeight)
     else
-        frame:SetMinResize(width, height)
+        frame:SetMinResize(minWidth, minHeight)
+        if maxWidth and maxHeight then
+            frame:SetMaxResize(maxWidth, maxHeight)
+        end
     end
 end
 
@@ -58,23 +65,21 @@ RXPFrame.ScrollChild = ScrollChild
 RXPFrame.MenuFrame = MenuFrame
 
 -- ============================================================
--- VISUALS & THEME - ОРИГИНАЛЬНЫЙ СТИЛЬ RXP
+-- VISUALS & THEME
 -- ============================================================
 
--- Цвета темы (классический RXP стиль)
 addon.activeTheme = addon.activeTheme or {
-    textColor = {0.9, 0.9, 0.95},        -- Белый/светло-серый заголовок
-    textColorSecondary = {0.8, 0.8, 0.85}, -- Светло-серый текст шагов
-    background = {0.1, 0.1, 0.12, 0.85},  -- Тёмно-серый, 85% непрозрачности
-    border = {0.2, 0.2, 0.25, 0.9},      -- Тёмно-синяя рамка
-    highlight = {0.3, 0.5, 0.8, 0.2},    -- Синяя подсветка
-    stepActive = {0.2, 0.5, 0.8, 0.4},   -- Синий для активного шага
-    stepComplete = {0.3, 0.3, 0.35, 0.3}, -- Тёмно-серый для выполненного
+    textColor = {0.9, 0.9, 0.95},
+    textColorSecondary = {0.8, 0.8, 0.85},
+    background = {0.1, 0.1, 0.12, 0.85},
+    border = {0.2, 0.2, 0.25, 0.9},
+    highlight = {0.3, 0.5, 0.8, 0.2},
+    stepActive = {0.2, 0.5, 0.8, 0.4},
+    stepComplete = {0.3, 0.3, 0.35, 0.3},
 }
 
 addon.colors = addon.activeTheme
 
--- Backdrop шаблоны для 3.3.5
 local function CreateBackdrop(bgFile, edgeFile, tile, edgeSize, tileSize, insets)
     return {
         bgFile = bgFile or "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -136,9 +141,8 @@ function addon.RenderFrame(themeUpdate, isLoading)
 end
 
 function RXPFrame:UpdateVisuals()
-    -- Применяем backdrop'ы ко всем фреймам
-BottomFrame:SetBackdrop(nil) -- убираем рамку внутри
-BottomFrame:SetBackdropColor(0,0,0,0)
+    BottomFrame:SetBackdrop(nil)
+    BottomFrame:SetBackdropColor(0,0,0,0)
 
     GuideName:SetBackdrop(RXPFrame.backdrop.guideName)
     GuideName:SetBackdropColor(unpack(addon.colors.background))
@@ -150,6 +154,11 @@ BottomFrame:SetBackdropColor(0,0,0,0)
 
     GuideName.text:SetTextColor(unpack(addon.activeTheme.textColor))
     Footer.text:SetTextColor(0.5, 0.5, 0.55)
+
+    -- Цвет подзаголовка задачи
+    if GuideName.subtitle then
+        GuideName.subtitle:SetTextColor(1, 0.85, 0.4)
+    end
 end
 
 -- ============================================================
@@ -157,7 +166,6 @@ end
 -- ============================================================
 
 function addon.SetupGuideWindow()
-    -- Применяем backdrop'ы
     RXPFrame:SetBackdrop(RXPFrame.backdrop.main)
     RXPFrame:SetBackdropColor(unpack(addon.colors.background))
     RXPFrame:SetBackdropBorderColor(unpack(addon.colors.border))
@@ -182,7 +190,14 @@ function addon.SetupGuideWindow()
     Footer:SetBackdropColor(unpack(addon.colors.background))
     Footer:SetBackdropBorderColor(unpack(addon.colors.border))
 
-    -- Иконки (если текстуры доступны)
+    -- Настройка подзаголовка задачи
+    if GuideName.subtitle then
+        GuideName.subtitle:SetFont(addon.font, 10, "")
+        GuideName.subtitle:SetText("")
+        GuideName.subtitle:SetTextColor(1, 0.85, 0.4)
+        GuideName.subtitle:Hide()
+    end
+
     local iconPath = "Interface\\AddOns\\" .. addonName .. "\\Textures\\"
     pcall(function()
         GuideName.icon:SetTexture(iconPath .. "rxp_logo-64")
@@ -195,14 +210,96 @@ RXPFrame:SetScript("OnShow", addon.PLAYER_ENTERING_WORLD)
 RXPFrame:SetScript("OnHide", addon.PLAYER_LEAVING_WORLD)
 RXPFrame:Show()
 
+-- ОБРАБОТЧИК СОБЫТИЙ КВЕСТОВ (вызывает LegacyUpdateLoop)
+local questUpdateFrame = CreateFrame("Frame", "RXPQuestUpdateFrame")
+questUpdateFrame:RegisterEvent("QUEST_LOG_UPDATE")
+questUpdateFrame:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
+questUpdateFrame:RegisterEvent("QUEST_ACCEPTED")
+questUpdateFrame:RegisterEvent("QUEST_TURNED_IN")
+questUpdateFrame:RegisterEvent("QUEST_REMOVED")
+questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
+    print("RXP EVENT:", event)
+
+    -- ПРЯМАЯ ПРОВЕРКА: вызываем accept для текущего шага
+    local guide = addon.currentGuide
+    if guide and RXPCData.currentStep then
+        local currentStep = guide.steps[RXPCData.currentStep]
+        if currentStep then
+            print("RXP DIRECT: Step " .. RXPCData.currentStep .. " has " .. #currentStep.elements .. " elements")
+            for i, element in ipairs(currentStep.elements or {}) do
+                print("RXP DIRECT: Element " .. i .. " tag=" .. tostring(element.tag) .. " questId=" .. tostring(element.questId) .. " text=" .. tostring(element.text and element.text:sub(1, 30)))
+                if element.tag == "accept" and element.questId then
+                    print("RXP DIRECT: Checking accept questId=" .. tostring(element.questId))
+                    local result = addon.functions.accept(element)
+                    print("RXP DIRECT: accept result=" .. tostring(result))
+                    if result then
+                        element.completed = true
+                        print("RXP DIRECT: Element marked completed!")
+                    end
+                end
+            end
+
+            -- Проверяем, все ли элементы выполнены
+            local allComplete = true
+            for _, element in ipairs(currentStep.elements or {}) do
+                if not element.completed and not element.optional then
+                    if element.tag ~= "goto" and element.tag ~= "waypoint" then
+                        allComplete = false
+                    end
+                end
+            end
+            print("RXP DIRECT: allComplete=" .. tostring(allComplete))
+
+            if allComplete then
+                currentStep.completed = true
+                print("RXP DIRECT: Step completed! Loading next...")
+                if RXPCData.currentStep < #guide.steps then
+                    addon.SetStep(RXPCData.currentStep + 1)
+                end
+            end
+        end
+    end
+
+    -- Также вызываем стандартный UpdateStepCompletion
+    if addon.UpdateStepCompletion then
+        addon.UpdateStepCompletion()
+    end
+
+    -- Обновляем UI
+    if CurrentStepFrame and CurrentStepFrame.UpdateText then
+        CurrentStepFrame.UpdateText()
+    end
+    if addon.UpdateCurrentTask then
+        addon.UpdateCurrentTask()
+    end
+end)
+print("RXP Quest event handler created!")
+
+-- Прямой тикер для вызова LegacyUpdateLoop (AceTimer не работает в 3.3.5)
+print("RXP Creating tickerFrame...")
+local tickerFrame = CreateFrame("Frame", "RXPTickerFrame")
+tickerFrame.elapsed = 0
+tickerFrame:SetScript("OnUpdate", function(self, elapsed)
+    self.elapsed = self.elapsed + elapsed
+    if self.elapsed >= 0.5 then
+        self.elapsed = 0
+        if addon.LegacyUpdateLoop then
+            addon.LegacyUpdateLoop()
+        end
+    end
+end)
+print("RXP TickerFrame created and running!")
+
 RXPFrame:SetMovable(true)
 RXPFrame:EnableMouse(true)
 RXPFrame:SetClampedToScreen(true)
 RXPFrame:SetResizable(true)
-addon.SetResizeBounds(RXPFrame, 220, 100)
+
+-- ИЗМЕНЕНО: ограничение размера окна (мин и макс)
+addon.SetResizeBounds(RXPFrame, 250, 120, 600, 500)
 
 -- ============================================================
--- FRAME POSITIONING - КОРРЕКТНЫЕ ANCHOR'Ы
+-- FRAME POSITIONING
 -- ============================================================
 
 RXPFrame:SetWidth(addon.width)
@@ -211,7 +308,7 @@ RXPFrame:SetPoint("LEFT", UIParent, "LEFT", 20, 35)
 RXPFrame:SetFrameStrata("MEDIUM")
 RXPFrame:SetFrameLevel(10)
 
--- GuideName - верхняя панель с названием гайда
+-- GuideName - верхняя панель с названием гайда и задачей
 GuideName:SetPoint("TOPLEFT", RXPFrame, "TOPLEFT", 8, -8)
 GuideName:SetPoint("TOPRIGHT", RXPFrame, "TOPRIGHT", -8, -8)
 GuideName:SetHeight(35)
@@ -225,8 +322,7 @@ Footer:SetPoint("BOTTOMLEFT", RXPFrame, "BOTTOMLEFT", 8, 8)
 Footer:SetPoint("BOTTOMRIGHT", RXPFrame, "BOTTOMRIGHT", -8, 8)
 Footer:SetHeight(22)
 
--- CurrentStepFrame - область активных шагов (сверху или снизу)
--- CurrentStepFrame - область активных шагов (сверху)
+-- CurrentStepFrame - область активных шагов
 CurrentStepFrame:SetPoint("BOTTOMLEFT", GuideName, "TOPLEFT", 0, 4)
 CurrentStepFrame:SetPoint("BOTTOMRIGHT", GuideName, "TOPRIGHT", 0, 4)
 CurrentStepFrame:SetHeight(0)
@@ -244,14 +340,11 @@ if not ScrollBar then
 end
 ScrollFrame.ScrollBar = ScrollBar
 
--- Убираем фон трека
 local track = _G[ScrollBar:GetName() .. "Track"]
 if track then track:SetAlpha(0) end
 
--- Ширина скроллбара
 ScrollBar:SetWidth(16)
 
--- Ползунок (thumb) — тонкий, без текстуры
 local thumb = ScrollBar:GetThumbTexture()
 if thumb then
     thumb:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -260,7 +353,6 @@ if thumb then
     thumb:SetHeight(30)
 end
 
--- Стрелки вверх/вниз — кастомные текстуры
 local texPath = "Interface\\AddOns\\RXPGuides\\Textures\\Scrollbar\\"
 
 local upButton = _G[ScrollBar:GetName() .. "ScrollUpButton"]
@@ -285,18 +377,30 @@ end
 
 ScrollFrame:SetScrollChild(ScrollChild)
 ScrollChild:SetWidth(RXPFrame:GetWidth() - 25)
-ScrollChild:SetWidth(RXPFrame:GetWidth() - 25)
 
 -- ============================================================
 -- GUIDE NAME & FOOTER TEXT
 -- ============================================================
 
+-- Название гайда (верхняя строка в GuideName)
 GuideName.text = GuideName:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-GuideName.text:SetPoint("LEFT", GuideName, "LEFT", 36, 0)
-GuideName.text:SetPoint("RIGHT", GuideName, "RIGHT", -8, 0)
+GuideName.text:SetPoint("TOPLEFT", GuideName, "TOPLEFT", 36, -4)
+GuideName.text:SetPoint("TOPRIGHT", GuideName, "TOPRIGHT", -8, -4)
 GuideName.text:SetJustifyH("CENTER")
-GuideName.text:SetJustifyV("MIDDLE")
+GuideName.text:SetJustifyV("TOP")
 GuideName:SetFrameLevel(12)
+
+-- НОВОЕ: Подзаголовок для актуальной задачи (внутри GuideName)
+GuideName.subtitle = GuideName:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+GuideName.subtitle:SetPoint("TOPLEFT", GuideName.text, "BOTTOMLEFT", 0, -2)
+GuideName.subtitle:SetPoint("BOTTOMRIGHT", GuideName, "BOTTOMRIGHT", -8, 4)
+GuideName.subtitle:SetJustifyH("LEFT")
+GuideName.subtitle:SetJustifyV("TOP")
+GuideName.subtitle:SetWordWrap(true)
+GuideName.subtitle:SetNonSpaceWrap(true)
+GuideName.subtitle:SetTextColor(1, 0.85, 0.4)  -- золотистый
+GuideName.subtitle:SetFont(addon.font, 10, "")
+GuideName.subtitle:Hide()
 
 GuideName.bg = GuideName:CreateTexture("$parentBG", "BACKGROUND")
 GuideName.bg:SetAllPoints()
@@ -330,7 +434,7 @@ Footer.icon:SetNormalTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Up")
 Footer.icon:SetHighlightTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Highlight", "ADD")
 Footer.icon:SetPushedTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Down")
 
--- Кнопка настроек (шестерёнка)
+-- Кнопка настроек
 Footer.cog = CreateFrame("Button", "$parentCogwheel", RXPFrame)
 Footer.cog:SetFrameLevel(GuideName:GetFrameLevel() + 1)
 Footer.cog:SetSize(18, 18)
@@ -358,6 +462,8 @@ RXPFrame.OnMouseUp = function(self, button)
     RXPFrame:StopMovingOrSizing()
     if isResizing then
         addon.settings.profile.frameHeight = RXPFrame:GetHeight()
+        -- Обновляем ширину ScrollChild при ресайзе
+        ScrollChild:SetWidth(math.max(50, RXPFrame:GetWidth() - 25))
         if addon.currentGuide then
             addon.updateBottomFrame = true
         end
@@ -436,11 +542,10 @@ local function IsFrameShown(frame, step)
 end
 
 function addon.ActiveStepElementOnEnter(frame)
-    -- 3.3.5: IsForbidden не существует, используем pcall
     local ok1, forbidden1 = pcall(function() return frame:IsForbidden() end)
     local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
     if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
-    
+
     local element = frame.element or frame:GetParent().element
     if element and element.tooltip then
         _G.GameTooltip:SetOwner(frame, "ANCHOR_BOTTOM", 0, -10)
@@ -454,7 +559,7 @@ function addon.ActiveStepElementOnLeave(frame)
     local ok1, forbidden1 = pcall(function() return frame:IsForbidden() end)
     local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
     if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
-    
+
     local element = frame.element or frame:GetParent().element
     if element and element.tooltip and _G.GameTooltip:GetOwner() == frame then
         _G.GameTooltip:Hide()
@@ -531,6 +636,85 @@ function addon.ReleaseActiveStepElement(frame)
 end
 
 -- ============================================================
+-- UPDATE CURRENT TASK (НОВАЯ ФУНКЦИЯ)
+-- ============================================================
+
+function addon.UpdateCurrentTask()
+    local guide = addon.currentGuide
+    if not guide or not RXPCData.currentStep then
+        if GuideName.subtitle then
+            GuideName.subtitle:Hide()
+        end
+        GuideName:SetHeight(35)
+        return
+    end
+
+    local currentStep = guide.steps[RXPCData.currentStep]
+    if not currentStep then
+        if GuideName.subtitle then
+            GuideName.subtitle:Hide()
+        end
+        GuideName:SetHeight(35)
+        return
+    end
+
+    -- Ищем первый элемент с текстом в текущем шаге
+    local taskText = nil
+    for _, element in ipairs(currentStep.elements or {}) do
+        if element.text and element.text ~= "" and element.text ~= " " then
+            local displayText = element.text
+            displayText = displayText:gsub("^%.%S+%s*", "")
+            displayText = displayText:gsub("^[%d%.%,%s]+", "")
+            local userText = displayText:match(">>(.+)$")
+            if userText then
+                displayText = userText:gsub("^%s+", ""):gsub("%s+$", "")
+            end
+            if displayText and displayText ~= "" then
+                taskText = displayText
+                break
+            end
+        end
+    end
+
+    -- Если не нашли в текущем шаге, ищем в активных sticky шагах
+    if not taskText then
+        for _, step in ipairs(activeSteps) do
+            if step.sticky then
+                for _, element in ipairs(step.elements or {}) do
+                    if element.text and element.text ~= "" and element.text ~= " " then
+                        local displayText = element.text
+                        displayText = displayText:gsub("^%.%S+%s*", "")
+                        displayText = displayText:gsub("^[%d%.%,%s]+", "")
+                        local userText = displayText:match(">>(.+)$")
+                        if userText then
+                            displayText = userText:gsub("^%s+", ""):gsub("%s+$", "")
+                        end
+                        if displayText and displayText ~= "" then
+                            taskText = displayText
+                            break
+                        end
+                    end
+                end
+                if taskText then break end
+            end
+        end
+    end
+
+    if taskText and GuideName.subtitle then
+        GuideName.subtitle:SetText(taskText)
+        GuideName.subtitle:Show()
+        -- Увеличиваем высоту GuideName чтобы вместить подзаголовок
+        local subtitleHeight = GuideName.subtitle:GetStringHeight() or 12
+        GuideName:SetHeight(math.max(35, 22 + subtitleHeight + 6))
+    else
+        if GuideName.subtitle then
+            GuideName.subtitle:Hide()
+        end
+        GuideName:SetHeight(35)
+    end
+end
+
+-- ============================================================
 -- STEP MANAGEMENT
 -- ============================================================
 
@@ -540,7 +724,6 @@ function addon.SetStep(n, n2, loopback)
     local guide = addon.currentGuide
     if not guide then return end
 
-    -- FIX: Создаём таблицу labels если её нет
     if not guide.labels then
         guide.labels = {}
         for idx, st in ipairs(guide.steps or {}) do
@@ -564,13 +747,11 @@ function addon.SetStep(n, n2, loopback)
             end
         end
         if isComplete then
--- addon.functions.next может не существовать
-if addon.functions and addon.functions.next then
-    return addon.functions.next()
-else
-    -- Заглушка: просто переходим к следующему гайду или ничего не делаем
-    return
-end
+            if addon.functions and addon.functions.next then
+                return addon.functions.next()
+            else
+                return
+            end
         else
             n = #guide.steps
         end
@@ -614,11 +795,11 @@ end
     for i = 1, n - 1 do
         local step = guide.steps[i]
         if step.sticky then
-           local req = guide.labels and guide.labels[step.requires]
+            local req = guide.labels and guide.labels[step.requires]
             if step.requires and req then
                 local requiredSteps = {}
                 req = guide.steps[req]
-                  while req and req.requires and guide.labels and not RXPCData.stepSkip[req.index] and not req.active do
+                while req and req.requires and guide.labels and not RXPCData.stepSkip[req.index] and not req.active do
                     if requiredSteps[req] then
                         addon.comms.PrettyPrint('ERROR: Step requirement loop at steps %d and %d',
                             step.index or 0, req.index or 0)
@@ -629,7 +810,8 @@ end
                 end
             end
             step.reqFulfilled = not (req and (req.active or (req.sticky and not RXPCData.stepSkip[req.index])))
-if not RXPCData.stepSkip[i] and step.reqFulfilled and level >= (step.level or 0) then                tinsert(activeSteps, step)
+            if not RXPCData.stepSkip[i] and step.reqFulfilled and level >= (step.level or 0) then
+                tinsert(activeSteps, step)
                 if n > 1 then scrollHeight = n - 1 end
                 step.active = true
             end
@@ -640,9 +822,9 @@ if not RXPCData.stepSkip[i] and step.reqFulfilled and level >= (step.level or 0)
     local req = step.requires and guide.labels and guide.labels[step.requires] and guide.steps[guide.labels[step.requires]]
     if step.completed and n < #guide.steps then
         return addon.SetStep(n + 1)
-elseif step and not step.completed and
-    not (req and #activeSteps > 0 and (req.active or not req.reqFulfilled)) and
-    level >= (step.level or 0) then
+    elseif step and not step.completed and
+        not (req and #activeSteps > 0 and (req.active or not req.reqFulfilled)) and
+        level >= (step.level or 0) then
         step.completed = false
         addon.settings.ReplaceColors(step)
         tinsert(activeSteps, step)
@@ -713,7 +895,6 @@ elseif step and not step.completed and
             stepframe.number.text:SetFont(addon.font, addon.settings.profile.guideFontSize, "OUTLINE")
         end
 
-        -- Применяем backdrop к шагу
         stepframe:SetBackdrop(RXPFrame.backdrop.edge)
         stepframe:SetBackdropColor(unpack(addon.colors.background))
         stepframe:SetBackdropBorderColor(unpack(addon.colors.border))
@@ -726,7 +907,7 @@ elseif step and not step.completed and
         if step.sticky then
             titletext = step.title or ""
         else
-titletext = step.title or (fmt(L("Step %d"), index or 1))
+            titletext = step.title or (fmt(L("Step %d"), index or 1))
         end
 
         if titletext == "" then
@@ -764,13 +945,12 @@ titletext = step.title or (fmt(L("Step %d"), index or 1))
                 elementFrame.text:SetJustifyV("MIDDLE")
                 elementFrame.text:SetTextColor(unpack(addon.activeTheme.textColorSecondary))
                 elementFrame.text:SetFont(addon.font, addon.settings.profile.guideFontSize + 2, "")
+                elementFrame.text:SetWordWrap(true)
+                elementFrame.text:SetNonSpaceWrap(true)
 
                 elementFrame.icon = elementFrame:CreateFontString(nil, "OVERLAY")
                 elementFrame.icon:SetFontObject(_G.GameFontNormalSmall)
 
-if elementFrame.SetMouseMotionEnabled then
-    elementFrame:SetMouseMotionEnabled(true)
-end
                 local ht = elementFrame:CreateTexture(nil, "HIGHLIGHT")
                 ht:SetAllPoints(elementFrame.text)
                 ht:SetTexture("Interface\\Worldmap\\UI-QuestPoi-HighlightBar")
@@ -824,7 +1004,6 @@ end
             stepframe.elements[n]:Hide()
         end
 
-        -- Fallback: ensure minimum height for active steps
         if frameHeight < 20 and step.active then
             frameHeight = 20
         end
@@ -860,6 +1039,9 @@ end
     addon.UpdateMap()
     BottomFrame:StepScroll(scrollHeight)
     addon.updateBottomFrame = true
+
+    -- НОВОЕ: обновляем строку с актуальной задачей
+    addon.UpdateCurrentTask()
 end
 
 -- ============================================================
@@ -924,14 +1106,22 @@ function CurrentStepFrame.UpdateText()
                         elementFrame.text:SetPoint("RIGHT", stepframe, -5, 0)
 
                         if element.text ~= ' ' then
-                            -- FIX: Извлекаем читаемый текст
                             local rawText = element.text
-                            local userText = rawText:match(">>(.+)$")
-                            if userText then
-                                rawText = userText:gsub("^%s+", "")
-                            else
-                                rawText = rawText:gsub("^%.%S+%s*[%d%.%,%-%s]*", "")
-                            end
+
+                            -- Очищаем от RXP тегов
+                            -- Формат: .tag [id] >> Текст
+                            rawText = rawText:gsub("^%.%S+%s+%d*%,?%d*%s*>>%s*", "")
+                            -- Формат: >>Текст (без тега)
+                            rawText = rawText:gsub("^>>%s*", "")
+                            -- Убираем цветовые теги |c...|r
+                            rawText = rawText:gsub("|c%x+", ""):gsub("|r", "")
+                            -- Убираем иконки |T...|t
+                            rawText = rawText:gsub("|T[^|]+|t", "")
+                            -- Убираем target теги
+                            rawText = rawText:gsub("%.target%s+.+$", "")
+                            -- Убираем лишние пробелы
+                            rawText = rawText:gsub("^%s+", ""):gsub("%s+$", "")
+
                             local text = L(rawText)
                             if addon.ReplaceNpcIds then
                                 text = addon.ReplaceNpcIds(text)
@@ -939,6 +1129,12 @@ function CurrentStepFrame.UpdateText()
                             elementFrame.text:SetText(text)
                         else
                             element.requestFromServer = true
+                        end
+
+                        -- Устанавливаем ширину для переноса
+                        local availableWidth = stepframe:GetWidth() - 40
+                        if availableWidth > 50 then
+                            elementFrame.text:SetWidth(availableWidth)
                         end
 
                         h = math.ceil(elementFrame.text:GetStringHeight() * 1.1) + 1
@@ -955,6 +1151,13 @@ function CurrentStepFrame.UpdateText()
 
                         elementFrame.icon:ClearAllPoints()
                         elementFrame.icon:SetPoint("TOPLEFT", elementFrame.button, "TOPRIGHT", 0, -1)
+
+                        -- Автоматическая галочка при выполнении
+                        if element.completed then
+                            elementFrame.button:SetChecked(true)
+                        else
+                            elementFrame.button:SetChecked(false)
+                        end
 
                         if element.textOnly then
                             elementFrame.button:SetChecked(true)
@@ -1051,7 +1254,6 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
     end
 
     if stepPos[0] and ((not self and stepn) or (self and self.step)) and IsFrameShown(self, self and self.step) then
-        -- First branch: update existing frame (stepPos exists)
         local stepNumber = stepn or self.step.index
         local frame = ScrollChild.framePool[stepNumber]
         local step = addon.currentGuide.steps[stepNumber]
@@ -1147,7 +1349,6 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         end
         stepPos[0] = stepPos[0] + hDiff
     else
-        -- Second branch: create/update all frames (initial load or full refresh)
         addon.updateBottomFrame = false
         local totalHeight = 0
         local fheight
@@ -1164,12 +1365,10 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 ScrollChild.framePool[n] = CreateFrame("Frame", "$parent_frame" .. n, ScrollChild)
                 frame = ScrollChild.framePool[n]
 
-                -- Иконка слева
                 frame.icon = frame:CreateTexture(nil, "ARTWORK")
                 frame.icon:SetSize(16, 16)
                 frame.icon:SetPoint("LEFT", frame, "LEFT", 6, 0)
 
-                -- Номер шага
                 frame.number = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 frame.number:SetPoint("LEFT", frame.icon, "RIGHT", 6, 0)
                 frame.number:SetTextColor(0.7, 0.7, 0.75)
@@ -1177,7 +1376,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 frame.number:SetWidth(18)
                 frame.number:SetJustifyH("LEFT")
 
-                -- Текст шага - multiline support with word wrap
+                -- ИЗМЕНЕНО: текст с поддержкой переноса
                 frame.text = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 frame.text:SetPoint("LEFT", frame.number, "RIGHT", 4, 0)
                 frame.text:SetPoint("RIGHT", frame, "RIGHT", -4, 0)
@@ -1185,9 +1384,9 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 frame.text:SetJustifyV("TOP")
                 frame.text:SetTextColor(0.85, 0.85, 0.9)
                 frame.text:SetFont(addon.font, 11, "")
-                -- Word wrap handled by anchor points
+                frame.text:SetWordWrap(true)
+                frame.text:SetNonSpaceWrap(true)
 
-                -- Hover-эффект
                 frame.highlight = frame:CreateTexture(nil, "HIGHLIGHT")
                 frame.highlight:SetAllPoints()
                 frame.highlight:SetTexture("Interface\QuestFrame\UI-QuestTitleHighlight")
@@ -1203,30 +1402,21 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 frame.step = step
                 frame.index = n
 
-                -- Build text from elements with proper cleaning
-                local text
-                -- Build text from elements
                 local text
                 for _, element in ipairs(step.elements or {}) do
                     local rawtext
-                    
-                    -- Get readable text from element
+
                     if element.text then
                         local displayText = element.text
-                        
-                        -- Check if this is raw tag text (starts with .tag)
+
                         if displayText:match("^%.") then
-                            -- Raw tag text - try to extract >> text or clean it
                             local userText = displayText:match(">>(.+)$")
                             if userText then
                                 displayText = userText:gsub("^%s+", ""):gsub("%s+$", "")
                             else
-                                -- No >> found - this is a command without readable text
-                                -- Skip navigation commands like .goto
                                 if element.tag == "goto" or element.tag == "waypoint" then
                                     displayText = nil
                                 else
-                                    -- Try to clean other tags
                                     displayText = displayText:gsub("^%.%S+%s*", "")
                                     displayText = displayText:gsub("^[%d%.%,%s]+", "")
                                     if displayText == "" then
@@ -1235,19 +1425,18 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                                 end
                             end
                         end
-                        
+
                         if displayText and displayText ~= "" then
                             rawtext = displayText
                         end
                     end
-                    
-                    -- Add icon if available
+
                     if rawtext then
                         local icon = element.icon or addon.icons[element.tag] or ""
                         if icon ~= "" then
                             rawtext = icon .. " " .. rawtext
                         end
-                        
+
                         if not text then
                             text = rawtext
                         else
@@ -1262,10 +1451,8 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 else
                     frame:Show()
 
-                    -- Номер с ведущим нулём
                     frame.number:SetText(string.format("%02d", n))
 
-                    -- Иконка
                     local firstElement = step.elements and step.elements[1]
                     local stepIcon = firstElement and (firstElement.icon or addon.icons[firstElement.tag]) or ""
                     if stepIcon and stepIcon ~= "" then
@@ -1275,29 +1462,11 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                         frame.icon:Hide()
                     end
 
-                    -- Текст с переносом строк
                     if text and text ~= "" then
-                        -- Calculate available width for text
-                        local frameWidth = frame:GetWidth()
-                        local scrollWidth = ScrollChild:GetWidth()
-                        local textWidth
-
-                        -- Safety check: if frame hasn't been laid out yet, use ScrollChild width
-                        if frameWidth and frameWidth > 50 then
-                            textWidth = frameWidth - frame.number:GetWidth() - 12
-                        elseif scrollWidth and scrollWidth > 50 then
-                            textWidth = scrollWidth - 30
-                        else
-                            textWidth = 200 -- fallback safe width
-                        end
-                        textWidth = math.max(50, textWidth)
-
-                        -- Set text only - anchor points handle width
                         if frame.text then
                             frame.text:SetText(text)
                         end
 
-                        -- Calculate height based on wrapped text
                         local textHeight = frame.text and frame.text:GetStringHeight() or 10
                         fheight = math.max(28, textHeight + 8)
                     else
@@ -1341,6 +1510,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         end
     end
 end
+
 function addon:LoadGuide(guide, isLoading)
     if not guide then return end
     if guide.empty then
@@ -1348,6 +1518,10 @@ function addon:LoadGuide(guide, isLoading)
         addon.currentGuideName = nil
         GuideName.text:SetText(guide.displayname)
         CurrentStepFrame:Hide()
+        if GuideName.subtitle then
+            GuideName.subtitle:Hide()
+        end
+        GuideName:SetHeight(35)
         return
     end
 
@@ -1360,9 +1534,39 @@ function addon:LoadGuide(guide, isLoading)
     addon.currentGuide = guide
     addon.currentGuideName = guide.name
 
+    -- Сбрасываем stepSkip если гайд изменился
+    if RXPCData.currentGuideName ~= guide.name then
+        RXPCData.stepSkip = {}
+    end
+
     RXPCData.currentGuideName = guide.name
     RXPCData.currentGuideGroup = guide.group
+
+    -- Проверяем и сбрасываем currentStep если нужно
     RXPCData.currentStep = RXPCData.currentStep or 1
+
+    -- Если currentStep вне диапазона или шаг уже выполнен — сбрасываем на 1
+    if RXPCData.currentStep > #guide.steps then
+        RXPCData.currentStep = 1
+    elseif guide.steps[RXPCData.currentStep] and guide.steps[RXPCData.currentStep].completed then
+        RXPCData.currentStep = 1
+    end
+
+    -- Если currentStep > 1, но предыдущие шаги не выполнены — сбрасываем на 1
+    -- (защита от сохранённого currentStep от другого персонажа/сессии)
+    if RXPCData.currentStep > 1 then
+        local allPreviousCompleted = true
+        for i = 1, RXPCData.currentStep - 1 do
+            if guide.steps[i] and guide.steps[i].completed ~= true then
+                allPreviousCompleted = false
+                break
+            end
+        end
+        if not allPreviousCompleted then
+            RXPCData.currentStep = 1
+            RXPCData.stepSkip = {} -- сбрасываем пропуски
+        end
+    end
 
     if RXPCData.currentStep > #guide.steps then
         RXPCData.currentStep = #guide.steps
@@ -1371,10 +1575,24 @@ function addon:LoadGuide(guide, isLoading)
     GuideName.text:SetText(guide.displayname or guide.name)
     addon.SetStep(RXPCData.currentStep)
 
--- Принудительно показываем и обновляем BottomFrame
+    -- Отладка: проверяем activeSteps
+    if addon.settings.profile.debug then
+        print("RXP Debug: currentStep =", RXPCData.currentStep)
+        print("RXP Debug: activeSteps count =", #activeSteps)
+        for i, step in ipairs(activeSteps) do
+            print("RXP Debug: activeStep", i, "index:", step.index, "sticky:", step.sticky and "yes" or "no")
+            for j, element in ipairs(step.elements or {}) do
+                print("RXP Debug:   element", j, "tag:", element.tag, "text:", element.text and element.text:sub(1, 50) or "nil")
+            end
+        end
+    end
+
     BottomFrame:Show()
     addon.updateBottomFrame = true
     BottomFrame.UpdateFrame()
+
+    -- Обновляем подзаголовок с текущей задачей
+    addon.UpdateCurrentTask()
 
     if not isLoading then
         addon:SendEvent("RXP_GUIDE_LOADED", guide)
@@ -1434,19 +1652,18 @@ function RXPFrame.GenerateMenuTable()
         end
     end
 
-table.insert(menu, {
-    text = L("Settings"),
-    notCheckable = 1,
-    func = function()
-        -- Прямое открытие настроек для 3.3.5
-        if InterfaceOptionsFrame then
-            InterfaceOptionsFrame:Show()
-            if InterfaceOptionsFrame_OpenToCategory and addon.settingsPanel then
-                InterfaceOptionsFrame_OpenToCategory(addon.settingsPanel)
+    table.insert(menu, {
+        text = L("Settings"),
+        notCheckable = 1,
+        func = function()
+            if InterfaceOptionsFrame then
+                InterfaceOptionsFrame:Show()
+                if InterfaceOptionsFrame_OpenToCategory and addon.settingsPanel then
+                    InterfaceOptionsFrame_OpenToCategory(addon.settingsPanel)
+                end
             end
         end
-    end
-})
+    })
     table.insert(menu, {
         text = L("Close"),
         notCheckable = 1,
@@ -1516,10 +1733,6 @@ function addon.UpdateGuideFontSize()
         end
     end
 end
-
--- ============================================================
--- INITIALIZE
--- ============================================================
 
 -- ============================================================
 -- SCROLL FRAME SETUP
