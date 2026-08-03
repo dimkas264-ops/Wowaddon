@@ -40,9 +40,14 @@ local GetAbandonQuestItems = _G.GetAbandonQuestItems
 local IsUnitOnQuest = _G.IsUnitOnQuest
 local GetQuestDifficultyColor = _G.GetQuestDifficultyColor
 local GetQuestLogIndexByID = _G.GetQuestLogIndexByID
-local GetQuestIDFromLogIndex = _G.GetQuestIDFromLogIndex
 
--- 3.3.5: C_QuestLog эмуляция
+-- В 3.3.5 GetQuestIDFromLogIndex НЕ СУЩЕСТВУЕТ
+local GetQuestIDFromLogIndex = _G.GetQuestIDFromLogIndex or function(questIndex) return nil end
+
+-- ============================================================
+-- C_QuestLog эмуляция
+-- ============================================================
+
 addon.QuestLog = {}
 
 function addon.QuestLog.GetNumQuestLogEntries()
@@ -178,7 +183,9 @@ function addon.QuestLog.GetQuestIDFromLogIndex(questIndex)
 end
 
 -- ============================================================
--- QUEST CACHE
+-- QUEST CACHE (для обратной совместимости)
+-- В 3.3.5 GetQuestLogTitle НЕ возвращает questID,
+-- поэтому кэш заполняется через GetQuestLogIndexByID
 -- ============================================================
 
 addon.questCache = {}
@@ -191,9 +198,11 @@ function addon.UpdateQuestLogCache()
 
     local numEntries, numQuests = GetNumQuestLogEntries()
     for i = 1, numEntries do
-        local questTitle, level, questTag, suggestedGroup, isHeader, isCollapsed, isComplete, isDaily, questID = GetQuestLogTitle(i)
-        if not isHeader and questID then
-            addon.questLogCache[questID] = {
+        local questTitle, level, questTag, suggestedGroup, isHeader, isCollapsed, isComplete, isDaily = GetQuestLogTitle(i)
+        if not isHeader then
+            -- В 3.3.5 GetQuestLogTitle не возвращает questID
+            -- Используем имя квеста как ключ для обратной совместимости
+            addon.questLogCache[questTitle] = {
                 index = i,
                 title = questTitle,
                 level = level,
@@ -202,27 +211,46 @@ function addon.UpdateQuestLogCache()
                 complete = isComplete,
                 daily = isDaily,
             }
-            addon.questLogIndexCache[questID] = i
         end
     end
 end
 
+-- ИСПРАВЛЕНО: Используем прямой вызов GetQuestLogIndexByID
 function addon.GetQuestLogIndexByID(questID)
-    if not addon.questLogIndexCache[questID] then
-        addon.UpdateQuestLogCache()
+    if not questID then return nil end
+    -- Прямой вызов глобальной функции 3.3.5
+    local index = GetQuestLogIndexByID(questID)
+    if index and index > 0 then
+        return index
     end
-    return addon.questLogIndexCache[questID]
+    return nil
 end
 
+-- ИСПРАВЛЕНО: Прямая проверка через GetQuestLogIndexByID
 function addon.IsQuestInLog(questID)
-    return addon.GetQuestLogIndexByID(questID) ~= nil
+    if not questID then return false end
+    local index = GetQuestLogIndexByID(questID)
+    return index and index > 0
 end
 
+-- ИСПРАВЛЕНО: Получаем info через GetQuestLogIndexByID + GetQuestLogTitle
 function addon.GetQuestLogInfo(questID)
-    if not addon.questLogCache[questID] then
-        addon.UpdateQuestLogCache()
-    end
-    return addon.questLogCache[questID]
+    if not questID then return nil end
+    local index = GetQuestLogIndexByID(questID)
+    if not index or index == 0 then return nil end
+
+    local questTitle, level, questTag, suggestedGroup, isHeader, isCollapsed, isComplete, isDaily = GetQuestLogTitle(index)
+    if isHeader then return nil end
+
+    return {
+        index = index,
+        title = questTitle,
+        level = level,
+        tag = questTag,
+        group = suggestedGroup,
+        complete = isComplete,
+        daily = isDaily,
+    }
 end
 
 -- ============================================================
@@ -230,8 +258,9 @@ end
 -- ============================================================
 
 function addon.GetQuestObjectives(questID)
-    local questIndex = addon.GetQuestLogIndexByID(questID)
-    if not questIndex then return nil end
+    if not questID then return nil end
+    local questIndex = GetQuestLogIndexByID(questID)
+    if not questIndex or questIndex == 0 then return nil end
 
     local objectives = {}
     local numObjectives = GetNumQuestLeaderBoards(questIndex)
@@ -272,9 +301,10 @@ function addon.UpdateWatchedQuests()
     for i = 1, numWatches do
         local questIndex = GetQuestIndexForWatch(i)
         if questIndex then
-            local questID = GetQuestIDFromLogIndex(questIndex)
-            if questID then
-                addon.watchedQuests[questID] = true
+            -- В 3.3.5 нет GetQuestIDFromLogIndex, используем GetQuestLogTitle
+            local questTitle = GetQuestLogTitle(questIndex)
+            if questTitle then
+                addon.watchedQuests[questTitle] = true
             end
         end
     end
@@ -282,19 +312,23 @@ end
 
 function addon.IsQuestWatchedByID(questID)
     addon.UpdateWatchedQuests()
-    return addon.watchedQuests[questID] == true
+    local info = addon.GetQuestLogInfo(questID)
+    if info and info.title then
+        return addon.watchedQuests[info.title] == true
+    end
+    return false
 end
 
 function addon.WatchQuestByID(questID)
-    local questIndex = addon.GetQuestLogIndexByID(questID)
-    if questIndex and not IsQuestWatched(questIndex) then
+    local questIndex = GetQuestLogIndexByID(questID)
+    if questIndex and questIndex > 0 and not IsQuestWatched(questIndex) then
         AddQuestWatch(questIndex)
     end
 end
 
 function addon.UnwatchQuestByID(questID)
-    local questIndex = addon.GetQuestLogIndexByID(questID)
-    if questIndex and IsQuestWatched(questIndex) then
+    local questIndex = GetQuestLogIndexByID(questID)
+    if questIndex and questIndex > 0 and IsQuestWatched(questIndex) then
         RemoveQuestWatch(questIndex)
     end
 end
@@ -306,16 +340,24 @@ end
 addon.trackedQuests = {}
 addon.completedQuests = {}
 
+-- В 3.3.5 GetQuestsCompleted НЕ СУЩЕСТВУЕТ
+-- Используем альтернативу: квест считается выполненным, если его нет в журнале
+-- и он был отмечен как взятый (questAccept)
 function addon.ParseCompletedQuests()
-    local completed = GetQuestsCompleted()
-    if completed then
-        for questID in pairs(completed) do
-            addon.completedQuests[questID] = true
-        end
-    end
+    -- В 3.3.5 нет GetQuestsCompleted
+    -- Оставляем пустым для совместимости
 end
 
 function addon.IsQuestCompleted(questID)
+    -- Квест считается выполненным, если:
+    -- 1. Он был взят (questAccept[questID]) и теперь его нет в журнале
+    -- 2. Или он в журнале и помечен как complete
+    if addon.questAccept[questID] and not addon.IsQuestInLog(questID) then
+        return true
+    end
+    if addon.IsQuestComplete(questID) then
+        return true
+    end
     return addon.completedQuests[questID] == true
 end
 
@@ -340,6 +382,7 @@ function addon.UpdateTrackedQuests()
     for questID, elements in pairs(addon.trackedQuests) do
         local info = addon.GetQuestLogInfo(questID)
         local isComplete = addon.IsQuestComplete(questID)
+        local inLog = addon.IsQuestInLog(questID)
 
         for _, element in ipairs(elements) do
             if element.step and element.step.active then
@@ -364,8 +407,8 @@ end
 -- ============================================================
 
 function addon.GetQuestRewardChoices(questID)
-    local questIndex = addon.GetQuestLogIndexByID(questID)
-    if not questIndex then return {} end
+    local questIndex = GetQuestLogIndexByID(questID)
+    if not questIndex or questIndex == 0 then return {} end
 
     local choices = {}
     local numChoices = GetNumQuestLogChoices(questIndex)
@@ -386,8 +429,8 @@ function addon.GetQuestRewardChoices(questID)
 end
 
 function addon.GetQuestRewards(questID)
-    local questIndex = addon.GetQuestLogIndexByID(questID)
-    if not questIndex then return {} end
+    local questIndex = GetQuestLogIndexByID(questID)
+    if not questIndex or questIndex == 0 then return {} end
 
     local rewards = {}
     local numRewards = GetNumQuestLogRewards(questIndex)
@@ -417,15 +460,18 @@ questLogFrame:RegisterEvent("QUEST_WATCH_UPDATE")
 questLogFrame:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
 questLogFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "QUEST_LOG_UPDATE" or event == "QUEST_WATCH_UPDATE" then
+        print("RXP DEBUG: EVENT " .. event .. " fired!")
         addon.UpdateQuestLogCache()
         addon.UpdateTrackedQuests()
         addon.updateStepText = true
+        addon.updateSteps = true  -- Добавляем обновление шагов
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         local unit = ...
         if unit == "player" then
             addon.UpdateQuestLogCache()
             addon.UpdateTrackedQuests()
             addon.updateStepText = true
+            addon.updateSteps = true  -- Добавляем обновление шагов
         end
     end
 end)
