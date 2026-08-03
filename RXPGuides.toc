@@ -1,0 +1,51 @@
+## Interface: 30300
+## Title: RestedXP Guides
+## Title-ruRU: RestedXP Гайды
+## Notes: In-game leveling guide for WoW 3.3.5
+## Notes-ruRU: Внутриигровой гайд по прокачке для WoW 3.3.5
+## Author: RestedXP Community
+## Version: 4.0.0-335
+## SavedVariables: RXPData
+## SavedVariablesPerCharacter: RXPCData
+## X-Category: Quests & Leveling
+## X-License: All Rights Reserved
+
+# Core
+RXPGuides.lua
+
+# Locale
+locale\enUS.lua
+locale
+uRU.lua
+
+# Utilities
+icons.lua
+separators.lua
+comms.lua
+tickers.lua
+
+# Data
+QuestLog.lua
+map.lua
+
+# Features
+functions.lua
+GuideLoader.lua
+GuideWindow.lua
+SettingsPanel.lua
+Targeting.lua
+Communications.lua
+
+# Optional modules
+tracker.lua
+tips.lua
+talents.lua
+itemUpgrades.lua
+activeItemFrame.lua
+
+# === FILE GUIDE LOADER ===
+GuideLoaderFile.lua
+
+# === GUIDES ===
+Guides\Alliance\WotLK-Draenei-1-12-Azuremyst.lua
+
