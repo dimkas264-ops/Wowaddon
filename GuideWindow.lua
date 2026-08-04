@@ -560,6 +560,85 @@ end
 
 function addon.ActiveStepElementPostClick(button)
     local element = button:GetParent().element
+
+    -- Отменяем предыдущий таймер, если пользователь кликнул повторно
+    if button.skipTimerFrame then
+        button.skipTimerFrame:SetScript("OnUpdate", nil)
+        button.skipTimerFrame = nil
+    end
+
+    -- === ПРИНУДИТЕЛЬНЫЙ ПРОПУСК ШАГА (Shift+Click на галочку) ===
+    if IsShiftKeyDown() and element and element.step then
+        local step = element.step
+        local guide = addon.currentGuide
+
+        if guide and step then
+            -- Сразу проставляем галочки всем элементам шага
+            for _, el in ipairs(step.elements or {}) do
+                el.completed = true
+                el.skip = true
+            end
+            addon.updateSteps = true
+            addon.UpdateMap()
+            if CurrentStepFrame and CurrentStepFrame.UpdateText then
+                CurrentStepFrame.UpdateText()
+            end
+
+            -- Таймер на 1 секунду — если не отменили, пропускаем шаг
+            local timerFrame = CreateFrame("Frame")
+            local elapsed = 0
+            timerFrame:SetScript("OnUpdate", function(self, delta)
+                elapsed = elapsed + delta
+                if elapsed >= 1 then
+                    self:SetScript("OnUpdate", nil)
+                    button.skipTimerFrame = nil
+
+                    -- Если пользователь снял галочку — отменяем пропуск
+                    if not button:GetChecked() then
+                        for _, el in ipairs(step.elements or {}) do
+                            el.completed = false
+                            el.skip = false
+                        end
+                        addon.updateSteps = true
+                        addon.UpdateMap()
+                        if CurrentStepFrame and CurrentStepFrame.UpdateText then
+                            CurrentStepFrame.UpdateText()
+                        end
+                        return
+                    end
+
+                    -- Подтверждаем пропуск
+                    for _, el in ipairs(step.elements or {}) do
+                        if el.OnComplete then
+                            pcall(el.OnComplete, el)
+                        end
+                    end
+
+                    step.completed = true
+                    if step.index then
+                        RXPCData.stepSkip[step.index] = true
+                    end
+
+                    addon.loadNextStep = true
+                    addon.updateSteps = true
+                    addon.updateBottomFrame = true
+                    addon.UpdateMap()
+
+                    if CurrentStepFrame and CurrentStepFrame.UpdateText then
+                        CurrentStepFrame.UpdateText()
+                    end
+                    addon.UpdateCurrentTask()
+
+                    print("|cff33ff99RXP|r: Step " .. (step.index or "?") .. " skipped")
+                end
+            end)
+            button.skipTimerFrame = timerFrame
+            return
+        end
+    end
+    -- =================================================================
+
+    -- Стандартное поведение — отметить/снять отметку с отдельного элемента
     if element and not element.optional then
         local skip = button:GetChecked()
         if element.OnComplete and skip and not element.skip then
@@ -964,21 +1043,38 @@ function addon.SetStep(n, n2, loopback)
                 ht:SetBlendMode("ADD")
                 ht:Hide()
                 elementFrame.highlight = ht
-
-                elementFrame:SetScript("OnEnter", addon.ActiveStepElementOnEnter)
-                elementFrame:SetScript("OnLeave", addon.ActiveStepElementOnLeave)
-                button:HookScript("OnEnter", addon.ActiveStepElementOnEnter)
-                button:HookScript("OnLeave", addon.ActiveStepElementOnLeave)
             end
 
-            elementFrame.button.theme = addon.activeTheme
-            local btnPath = "Interface\\AddOns\\" .. addonName .. "\\Textures\\"
-            pcall(function()
-                elementFrame.button:SetNormalTexture(btnPath .. "rxp-btn-blank-32")
-                elementFrame.button:SetCheckedTexture(btnPath .. "rxp-checked-32")
-                elementFrame.button:SetDisabledCheckedTexture(btnPath .. "rxp-checked-32")
-            end)
+elementFrame:SetScript("OnEnter", addon.ActiveStepElementOnEnter)
+elementFrame:SetScript("OnLeave", addon.ActiveStepElementOnLeave)
 
+-- Кастомный tooltip только для кнопки-галочки
+button:SetScript("OnEnter", function(self)
+    local ok1, forbidden1 = pcall(function() return self:IsForbidden() end)
+    local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
+    if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
+
+    local el = self:GetParent().element
+    if el and el.tooltip then
+        _G.GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -10)
+        _G.GameTooltip:ClearLines()
+        _G.GameTooltip:AddLine(el.tooltip, 1, 1, 1)
+        _G.GameTooltip:Show()
+    else
+        _G.GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -10)
+        _G.GameTooltip:ClearLines()
+        _G.GameTooltip:AddLine("Shift+Click — пропустить шаг", 0.9, 0.7, 0.2)
+        _G.GameTooltip:Show()
+    end
+end)
+button:SetScript("OnLeave", function(self)
+    local ok1, forbidden1 = pcall(function() return self:IsForbidden() end)
+    local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
+    if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
+    if _G.GameTooltip:GetOwner() == self then
+        _G.GameTooltip:Hide()
+    end
+end)
             addon.BindActiveStepElement(elementFrame, step, element, index)
 
             if element.unitscan then
