@@ -1043,38 +1043,38 @@ function addon.SetStep(n, n2, loopback)
                 ht:SetBlendMode("ADD")
                 ht:Hide()
                 elementFrame.highlight = ht
+
+                elementFrame:SetScript("OnEnter", addon.ActiveStepElementOnEnter)
+                elementFrame:SetScript("OnLeave", addon.ActiveStepElementOnLeave)
+
+                -- Кастомный tooltip только для кнопки-галочки
+                button:SetScript("OnEnter", function(self)
+                    local ok1, forbidden1 = pcall(function() return self:IsForbidden() end)
+                    local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
+                    if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
+
+                    local el = self:GetParent().element
+                    if el and el.tooltip then
+                        _G.GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -10)
+                        _G.GameTooltip:ClearLines()
+                        _G.GameTooltip:AddLine(el.tooltip, 1, 1, 1)
+                        _G.GameTooltip:Show()
+                    else
+                        _G.GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -10)
+                        _G.GameTooltip:ClearLines()
+                        _G.GameTooltip:AddLine("Shift+Click — пропустить шаг", 0.9, 0.7, 0.2)
+                        _G.GameTooltip:Show()
+                    end
+                end)
+                button:SetScript("OnLeave", function(self)
+                    local ok1, forbidden1 = pcall(function() return self:IsForbidden() end)
+                    local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
+                    if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
+                    if _G.GameTooltip:GetOwner() == self then
+                        _G.GameTooltip:Hide()
+                    end
+                end)
             end
-
-elementFrame:SetScript("OnEnter", addon.ActiveStepElementOnEnter)
-elementFrame:SetScript("OnLeave", addon.ActiveStepElementOnLeave)
-
--- Кастомный tooltip только для кнопки-галочки
-button:SetScript("OnEnter", function(self)
-    local ok1, forbidden1 = pcall(function() return self:IsForbidden() end)
-    local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
-    if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
-
-    local el = self:GetParent().element
-    if el and el.tooltip then
-        _G.GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -10)
-        _G.GameTooltip:ClearLines()
-        _G.GameTooltip:AddLine(el.tooltip, 1, 1, 1)
-        _G.GameTooltip:Show()
-    else
-        _G.GameTooltip:SetOwner(self, "ANCHOR_BOTTOM", 0, -10)
-        _G.GameTooltip:ClearLines()
-        _G.GameTooltip:AddLine("Shift+Click — пропустить шаг", 0.9, 0.7, 0.2)
-        _G.GameTooltip:Show()
-    end
-end)
-button:SetScript("OnLeave", function(self)
-    local ok1, forbidden1 = pcall(function() return self:IsForbidden() end)
-    local ok2, forbidden2 = pcall(function() return _G.GameTooltip:IsForbidden() end)
-    if (ok1 and forbidden1) or (ok2 and forbidden2) then return end
-    if _G.GameTooltip:GetOwner() == self then
-        _G.GameTooltip:Hide()
-    end
-end)
             addon.BindActiveStepElement(elementFrame, step, element, index)
 
             if element.unitscan then
