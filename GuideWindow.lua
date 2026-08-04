@@ -332,11 +332,6 @@ ScrollBar:SetMinMaxValues(0, 0)
 ScrollBar:SetValue(0)
 ScrollBar:SetValueStep(1)
 
--- Связь ScrollBar со ScrollFrame для 3.3.5
-ScrollBar:SetScript("OnValueChanged", function(self, value)
-    ScrollFrame:SetVerticalScroll(value)
-end)
-
 local track = _G[ScrollBar:GetName() .. "Track"]
 if track then track:SetAlpha(0) end
 
@@ -1266,18 +1261,16 @@ function addon.UpdateWindowHeight()
         local step = addon.currentGuide.steps[s]
         if step and IsFrameShown(nil, step) then
             local frame = ScrollChild.framePool[s]
-            if frame and frame:IsShown() and frame:GetHeight() > 1 then
-                local textH = frame.text and frame.text:GetStringHeight() or 20
-                local stepH = math.max(28, textH + 8)
-                visibleStepsHeight = visibleStepsHeight + stepH + 1
+            if frame and frame:GetHeight() > 0.5 then
+                visibleStepsHeight = visibleStepsHeight + frame:GetHeight() + 5
                 stepsCounted = stepsCounted + 1
                 if stepsCounted >= 3 then break end
             end
         end
     end
 
-    local newHeight = 35 + visibleStepsHeight + 22 + 12
-    newHeight = math.max(newHeight, 120)
+    local newHeight = 35 + visibleStepsHeight + 22 + 20
+    newHeight = math.max(newHeight, 140)
     RXPFrame:SetWidth(320)
     RXPFrame:SetHeight(newHeight)
     addon.settings.profile.frameHeight = newHeight
@@ -1565,6 +1558,13 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
 
         ScrollChild:SetHeight(totalHeight)
         stepPos[0] = totalHeight
+
+        -- Обновляем ScrollBar
+        local scrollRange = math.max(0, totalHeight - BottomFrame:GetHeight() + 10)
+        if ScrollFrame.ScrollBar then
+            ScrollFrame.ScrollBar:SetMinMaxValues(0, scrollRange)
+            ScrollFrame.ScrollBar:SetValueStep(1)
+        end
 
         for n = 1, nframes do
             local frameTop = ScrollChild.framePool[n]:GetTop()
