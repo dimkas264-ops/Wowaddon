@@ -153,10 +153,10 @@ function RXPFrame:UpdateVisuals()
     GuideName.text:SetTextColor(unpack(addon.activeTheme.textColor))
     Footer.text:SetTextColor(0.5, 0.5, 0.55)
 
-    -- Цвет подзаголовка задачи
-    if GuideName.subtitle then
-        GuideName.subtitle:SetTextColor(1, 0.85, 0.4)
-    end
+    -- Цвет подзаголовка задачи (отключено)
+    -- if GuideName.subtitle then
+    --     GuideName.subtitle:SetTextColor(1, 0.85, 0.4)
+    -- end
 end
 
 -- ============================================================
@@ -188,11 +188,8 @@ function addon.SetupGuideWindow()
     Footer:SetBackdropColor(unpack(addon.colors.background))
     Footer:SetBackdropBorderColor(unpack(addon.colors.border))
 
-    -- Настройка подзаголовка задачи
+    -- Настройка подзаголовка задачи (отключено — дублирует CurrentStepFrame)
     if GuideName.subtitle then
-        GuideName.subtitle:SetFont(addon.font, 10, "")
-        GuideName.subtitle:SetText("")
-        GuideName.subtitle:SetTextColor(1, 0.85, 0.4)
         GuideName.subtitle:Hide()
     end
 
@@ -711,78 +708,11 @@ end
 -- ============================================================
 
 function addon.UpdateCurrentTask()
-    local guide = addon.currentGuide
-    if not guide or not RXPCData.currentStep then
-        if GuideName.subtitle then
-            GuideName.subtitle:Hide()
-        end
-        GuideName:SetHeight(35)
-        return
+    -- Отключено: subtitle дублирует текст из CurrentStepFrame
+    if GuideName.subtitle then
+        GuideName.subtitle:Hide()
     end
-
-    local currentStep = guide.steps[RXPCData.currentStep]
-    if not currentStep then
-        if GuideName.subtitle then
-            GuideName.subtitle:Hide()
-        end
-        GuideName:SetHeight(35)
-        return
-    end
-
-    -- Ищем первый элемент с текстом в текущем шаге
-    local taskText = nil
-    for _, element in ipairs(currentStep.elements or {}) do
-        if element.text and element.text ~= "" and element.text ~= " " then
-            local displayText = element.text
-            displayText = displayText:gsub("^%.%S+%s*", "")
-            displayText = displayText:gsub("^[%d%.%,%s]+", "")
-            local userText = displayText:match(">>(.+)$")
-            if userText then
-                displayText = userText:gsub("^%s+", ""):gsub("%s+$", "")
-            end
-            if displayText and displayText ~= "" then
-                taskText = displayText
-                break
-            end
-        end
-    end
-
-    -- Если не нашли в текущем шаге, ищем в активных sticky шагах
-    if not taskText then
-        for _, step in ipairs(activeSteps) do
-            if step.sticky then
-                for _, element in ipairs(step.elements or {}) do
-                    if element.text and element.text ~= "" and element.text ~= " " then
-                        local displayText = element.text
-                        displayText = displayText:gsub("^%.%S+%s*", "")
-                        displayText = displayText:gsub("^[%d%.%,%s]+", "")
-                        local userText = displayText:match(">>(.+)$")
-                        if userText then
-                            displayText = userText:gsub("^%s+", ""):gsub("%s+$", "")
-                        end
-                        if displayText and displayText ~= "" then
-                            taskText = displayText
-                            break
-                        end
-                    end
-                end
-                if taskText then break end
-            end
-        end
-    end
-
-    if taskText and GuideName.subtitle then
-        GuideName.subtitle:SetText(taskText)
-        GuideName.subtitle:Show()
-        -- Увеличиваем высоту GuideName чтобы вместить подзаголовок
-        local subtitleHeight = GuideName.subtitle:GetStringHeight() or 12
-        GuideName:SetHeight(math.max(35, 22 + subtitleHeight + 6))
-    else
-        if GuideName.subtitle then
-            GuideName.subtitle:Hide()
-        end
-        GuideName:SetHeight(35)
-    end
+    GuideName:SetHeight(35)
 end
 
 -- ============================================================
