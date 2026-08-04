@@ -325,6 +325,17 @@ if not ScrollBar then
     ScrollBar = CreateFrame("Slider", "$parentScrollBar", ScrollFrame, "UIPanelScrollBarTemplate")
 end
 ScrollFrame.ScrollBar = ScrollBar
+ScrollBar:SetFrameLevel(ScrollFrame:GetFrameLevel() + 2)
+ScrollBar:Show()
+ScrollBar:EnableMouse(true)
+ScrollBar:SetMinMaxValues(0, 0)
+ScrollBar:SetValue(0)
+ScrollBar:SetValueStep(1)
+
+-- Связь ScrollBar со ScrollFrame для 3.3.5
+ScrollBar:SetScript("OnValueChanged", function(self, value)
+    ScrollFrame:SetVerticalScroll(value)
+end)
 
 local track = _G[ScrollBar:GetName() .. "Track"]
 if track then track:SetAlpha(0) end
@@ -348,10 +359,7 @@ if upButton then
     upButton:SetDisabledTexture(texPath .. "Up-Disabled")
     upButton:SetAlpha(1)
     upButton:EnableMouse(true)
-    upButton:SetScript("OnClick", function()
-        local current = RXPCData.currentStep or 1
-        if current > 1 then addon.SetStep(current - 1) end
-    end)
+    upButton:Show()
 end
 
 local downButton = _G[ScrollBar:GetName() .. "ScrollDownButton"]
@@ -362,11 +370,7 @@ if downButton then
     downButton:SetDisabledTexture(texPath .. "Down-Disabled")
     downButton:SetAlpha(1)
     downButton:EnableMouse(true)
-    downButton:SetScript("OnClick", function()
-        local current = RXPCData.currentStep or 1
-        local guide = addon.currentGuide
-        if guide and current < #guide.steps then addon.SetStep(current + 1) end
-    end)
+    downButton:Show()
 end
 
 ScrollFrame:SetScrollChild(ScrollChild)
@@ -427,6 +431,7 @@ Footer.icon:SetPoint("BOTTOMRIGHT", Footer, "BOTTOMRIGHT", -1, 1)
 Footer.icon:SetNormalTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Up")
 Footer.icon:SetHighlightTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Highlight", "ADD")
 Footer.icon:SetPushedTexture("Interface\\CHATFRAME\\UI-ChatIM-SizeGrabber-Down")
+Footer.icon:Hide()
 
 -- Кнопка настроек
 Footer.cog = CreateFrame("Button", "$parentCogwheel", RXPFrame)
@@ -1490,7 +1495,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                         if frame.text then
                             frame.text:SetText(text)
                             -- Явно задаём ширину для корректного переноса
-                            local textWidth = math.max(50, frame:GetWidth() - 38)
+                            local textWidth = 251
                             frame.text:SetWidth(textWidth)
                         end
 
@@ -1531,9 +1536,18 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         local stepsCounted = 0
         local currentStepIdx = RXPCData.currentStep or 1
         for s = currentStepIdx, nframes do
-            local f = ScrollChild.framePool[s]
-            if f and f:IsShown() and f:GetHeight() > 1 then
-                visibleStepsHeight = visibleStepsHeight + f:GetHeight() + 1
+            local step = addon.currentGuide.steps[s]
+            if step and IsFrameShown(nil, step) then
+                local stepH = 28
+                if stepPos[s] then
+                    if stepPos[s+1] then
+                        stepH = stepPos[s+1] - stepPos[s]
+                    else
+                        stepH = stepPos[0] - stepPos[s]
+                    end
+                end
+                stepH = math.max(stepH, 28)
+                visibleStepsHeight = visibleStepsHeight + stepH + 1
                 stepsCounted = stepsCounted + 1
                 if stepsCounted >= 3 then break end
             end
