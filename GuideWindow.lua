@@ -1356,18 +1356,19 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     rawtext = displayText
                 end
 
-if rawtext and not element.hideTooltip then
-    if addon.ReplaceNpcIds then
-        rawtext = addon.ReplaceNpcIds(rawtext, element)
-    end
-    -- Добавляем иконку элемента
-    local icon = element.icon or addon.icons[element.tag] or ""
-    if icon ~= "" then
-        rawtext = icon .. " " .. rawtext
-    end
-    if not text then text = " " .. rawtext
-    else text = text .. "\n " .. rawtext end
-end            end
+                if rawtext and not element.hideTooltip then
+                    if addon.ReplaceNpcIds then
+                        rawtext = addon.ReplaceNpcIds(rawtext, element)
+                    end
+                    -- Добавляем иконку элемента
+                    local icon = element.icon or addon.icons[element.tag] or ""
+                    if icon ~= "" then
+                        rawtext = icon .. " " .. rawtext
+                    end
+                    if not text then text = " " .. rawtext
+                    else text = text .. "\n " .. rawtext end
+                end
+            end
         end
 
         if hideStep then
