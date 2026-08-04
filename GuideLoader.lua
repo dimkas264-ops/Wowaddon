@@ -976,6 +976,11 @@ if parsingLogic[tag] then
             element.text = element.text:gsub("|T[^|]+|t", "")
             element.text = element.text:gsub("%.target%s+.+$", "")
             element.text = element.text:gsub("^%s+", ""):gsub("%s+$", "")
+            -- Добавляем иконку элемента к тексту
+            local icon = element.icon or addon.icons[element.tag] or ""
+            if icon ~= "" then
+                element.text = icon .. " " .. element.text
+            end
         end
         if element.tooltipText and type(element.tooltipText) == "string" then
             element.tooltipText = element.tooltipText:gsub("|c[^|]+", ""):gsub("|r", "")
