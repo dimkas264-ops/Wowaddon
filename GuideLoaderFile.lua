@@ -30,27 +30,37 @@ _G.RXPGuides = _G.RXPGuides or {}
 
 _G.RXPGuides.RegisterGuide = function(guideString)
     print("|cff33ff99RXP|r: RegisterGuide called!")
-    
+
     if not guideString or guideString == "" then
         print("|cff33ff99RXP|r: Empty guide string")
         return
     end
-    
+
     -- Ручной парсинг заголовка
     local guide = {}
     local steps = {}
     local currentStep = nil
     local inHeader = true
-    
+    local skipStep = false
+
     for line in guideString:gmatch("[^\r\n]+") do
         line = line:gsub("^%s+", ""):gsub("%s+$", "")
-        
+
         if line == "" then
             -- пропускаем пустые строки
         elseif line:sub(1, 4) == "step" then
             inHeader = false
-currentStep = {elements = {}, index = #steps + 1}
-table.insert(steps, currentStep)
+            -- === ФИЛЬТРАЦИЯ ПО КЛАССУ/РАСЕ/ФРАКЦИИ ===
+            local classtag = line:match("<<%s*(.+)")
+            if classtag and addon.applies and not addon.applies(classtag) then
+                skipStep = true
+                currentStep = nil
+            else
+                skipStep = false
+                currentStep = {elements = {}, index = #steps + 1}
+                table.insert(steps, currentStep)
+            end
+            -- ==========================================
         elseif inHeader then
             local tag, value = line:match("^#(%S+)%s+(.*)")
             if tag then
@@ -59,7 +69,7 @@ table.insert(steps, currentStep)
                     addon.currentGuideName = value
                 end
             end
-        elseif currentStep then
+        elseif currentStep and not skipStep then
             local ok, err = pcall(function()
                 addon.ParseLine(line, currentStep)
             end)
@@ -68,16 +78,16 @@ table.insert(steps, currentStep)
             end
         end
     end
-    
+
     guide.steps = steps
     guide.group = guide.group or "Unknown"
     guide.name = guide.name or "Unknown"
     guide.displayname = guide.displayname or guide.name
     guide.key = addon.BuildGuideKey(guide)
     guide.version = 0
-    
+
     addon.AddGuide(guide)
-    print("|cff33ff99RXP|r: Loaded guide:", guide.name)
+    print("|cff33ff99RXP|r: Loaded guide:", guide.name, "steps:", #steps)
 end
 
 print("|cff33ff99RXP|r: File guide loader ready")
