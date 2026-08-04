@@ -32,7 +32,7 @@ function addon.SetResizeBounds(frame, minWidth, minHeight, maxWidth, maxHeight)
     end
 end
 
-addon.width, addon.height = 320, 190
+addon.width, addon.height = 320, 135
 
 -- ============================================================
 -- MAIN FRAME
@@ -282,16 +282,13 @@ end)
 RXPFrame:SetMovable(true)
 RXPFrame:EnableMouse(true)
 RXPFrame:SetClampedToScreen(true)
-RXPFrame:SetResizable(true)
-
--- ИЗМЕНЕНО: ограничение размера окна (мин и макс)
-addon.SetResizeBounds(RXPFrame, 250, 120, 600, 500)
+-- Ресайз окна отключен — высота подстраивается под 3 шага автоматически
 
 -- ============================================================
 -- FRAME POSITIONING
 -- ============================================================
 
-RXPFrame:SetWidth(addon.width)
+RXPFrame:SetWidth(320)
 RXPFrame:SetHeight(addon.height)
 RXPFrame:SetPoint("LEFT", UIParent, "LEFT", 20, 35)
 RXPFrame:SetFrameStrata("MEDIUM")
@@ -334,12 +331,11 @@ if track then track:SetAlpha(0) end
 
 ScrollBar:SetWidth(16)
 
+-- Ползунок скроллбара скрыт, оставлены только стрелки
 local thumb = ScrollBar:GetThumbTexture()
 if thumb then
-    thumb:SetTexture("Interface\\Buttons\\WHITE8X8")
-    thumb:SetVertexColor(0.4, 0.4, 0.4, 0.8)
-    thumb:SetWidth(4)
-    thumb:SetHeight(30)
+    thumb:SetTexture(nil)
+    thumb:SetAlpha(0)
 end
 
 local texPath = "Interface\\AddOns\\RXPGuides\\Textures\\Scrollbar\\"
@@ -352,6 +348,10 @@ if upButton then
     upButton:SetDisabledTexture(texPath .. "Up-Disabled")
     upButton:SetAlpha(1)
     upButton:EnableMouse(true)
+    upButton:SetScript("OnClick", function()
+        local current = RXPCData.currentStep or 1
+        if current > 1 then addon.SetStep(current - 1) end
+    end)
 end
 
 local downButton = _G[ScrollBar:GetName() .. "ScrollDownButton"]
@@ -362,10 +362,15 @@ if downButton then
     downButton:SetDisabledTexture(texPath .. "Down-Disabled")
     downButton:SetAlpha(1)
     downButton:EnableMouse(true)
+    downButton:SetScript("OnClick", function()
+        local current = RXPCData.currentStep or 1
+        local guide = addon.currentGuide
+        if guide and current < #guide.steps then addon.SetStep(current + 1) end
+    end)
 end
 
 ScrollFrame:SetScrollChild(ScrollChild)
-ScrollChild:SetWidth(RXPFrame:GetWidth() - 25)
+ScrollChild:SetWidth(295)
 
 -- ============================================================
 -- GUIDE NAME & FOOTER TEXT
@@ -435,40 +440,20 @@ Footer.cog:Show()
 -- MOUSE HANDLING
 -- ============================================================
 
-local isResizing = false
-
-RXPFrame.OnMouseDown = function(self, button, resize)
+RXPFrame.OnMouseDown = function(self, button)
     if addon.settings.profile.lockFrames then return end
-    if resize or (IsAltKeyDown() and not (addon.currentGuide and addon.currentGuide.hidewindow)) then
-        RXPFrame:StartSizing("BOTTOMRIGHT")
-        isResizing = true
-    else
-        RXPFrame:StartMoving()
-    end
+    RXPFrame:StartMoving()
 end
 
 RXPFrame.OnMouseUp = function(self, button)
     RXPFrame:StopMovingOrSizing()
-    if isResizing then
-        addon.settings.profile.frameHeight = RXPFrame:GetHeight()
-        addon.frameHeightSetByUser = true
-        -- Обновляем ширину ScrollChild при ресайзе
-        ScrollChild:SetWidth(math.max(50, RXPFrame:GetWidth() - 25))
-        if addon.currentGuide then
-            addon.updateBottomFrame = true
-        end
-    end
-    isResizing = false
     addon.settings:SaveFramePositions()
 end
 
 RXPFrame:SetScript("OnMouseDown", RXPFrame.OnMouseDown)
 RXPFrame:SetScript("OnMouseUp", RXPFrame.OnMouseUp)
 
-Footer.icon:SetScript("OnMouseDown", function(self, button)
-    RXPFrame.OnMouseDown(self, button, true)
-end)
-Footer.icon:SetScript("OnMouseUp", RXPFrame.OnMouseUp)
+-- Ресайз скрипты отключены
 
 GuideName.OnMouseDown = function(self, button)
     if button == "RightButton" then
@@ -1149,7 +1134,7 @@ function CurrentStepFrame.UpdateText()
                             -- Формат: >>Текст (без тега)
                             rawText = rawText:gsub("^>>%s*", "")
                             -- Убираем цветовые теги |c...|r
-                            rawText = rawText:gsub("|c%x+", ""):gsub("|r", "")
+                            rawText = rawText:gsub("|c[^|]+", ""):gsub("|r", "")
                             -- Убираем иконки |T...|t
                             rawText = rawText:gsub("|T[^|]+|t", "")
                             -- Убираем target теги
@@ -1266,25 +1251,18 @@ local stepPos = {}
 local lastScrollValue
 
 function BottomFrame:StepScroll(n)
-    local value
     local step = addon.currentGuide and addon.currentGuide.steps[n]
     if not step or not IsFrameShown(nil, step) then return end
 
-    local height = ScrollChild.f1 and ScrollChild.f1:GetHeight() or 200
-    if n == 1 or not (stepPos[n] and stepPos[0] and height) then
-        value = 0
-    else
-        value = stepPos[n] / stepPos[0] * height - 2
-        local smax = height - BottomFrame:GetHeight() + 10
+    local value = 0
+    if stepPos[n] and stepPos[0] then
+        value = stepPos[n] - 2
+        if value < 0 then value = 0 end
+        local smax = stepPos[0] - BottomFrame:GetHeight() + 10
         if value > smax then value = smax end
     end
     if ScrollFrame.ScrollBar then ScrollFrame.ScrollBar:SetValue(value) end
-
-    value = math.floor(value + 0.5)
-    if value ~= lastScrollValue then
-        addon.ScheduleTask(0, BottomFrame.StepScroll, n)
-    end
-    lastScrollValue = value
+    lastScrollValue = math.floor(value + 0.5)
 end
 
 function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
@@ -1365,7 +1343,11 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
             end
         end
 
-        if frame.text then frame.text:SetText(text) end
+        if frame.text then
+            frame.text:SetText(text)
+            local textWidth = math.max(50, frame:GetWidth() - 38)
+            frame.text:SetWidth(textWidth)
+        end
 
         if hideStep then
             frame.text:Hide()
@@ -1468,11 +1450,6 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                             end
                         end
 
-                        -- Очищаем от RXP тегов
-                        displayText = displayText:gsub("|c%x+", ""):gsub("|r", "")
-                        displayText = displayText:gsub("|T[^|]+|t", "")
-                        displayText = displayText:gsub("%.target%s+.+$", "")
-
                         if displayText and displayText ~= "" then
                             rawtext = displayText
                         end
@@ -1549,18 +1526,23 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         ScrollChild:SetHeight(totalHeight)
         stepPos[0] = totalHeight
 
-        -- Динамическая высота окна: подстраиваемся под количество шагов (макс 4 видимых)
-        if not addon.frameHeightSetByUser then
-            local maxVisibleSteps = 4
-            local stepHeightEstimate = 30
-            local maxBottomHeight = maxVisibleSteps * stepHeightEstimate
-            local desiredBottomHeight = math.min(totalHeight, maxBottomHeight)
-            local minFrameHeight = 160
-            local newHeight = 35 + desiredBottomHeight + 22 + 12
-            newHeight = math.max(newHeight, minFrameHeight)
-            RXPFrame:SetHeight(newHeight)
-            addon.settings.profile.frameHeight = newHeight
+        -- Высота окна подстраивается под первые 3 видимых шага от текущего
+        local visibleStepsHeight = 0
+        local stepsCounted = 0
+        local currentStepIdx = RXPCData.currentStep or 1
+        for s = currentStepIdx, nframes do
+            local f = ScrollChild.framePool[s]
+            if f and f:IsShown() and f:GetHeight() > 1 then
+                visibleStepsHeight = visibleStepsHeight + f:GetHeight() + 1
+                stepsCounted = stepsCounted + 1
+                if stepsCounted >= 3 then break end
+            end
         end
+        local newHeight = 35 + visibleStepsHeight + 22 + 12
+        newHeight = math.max(newHeight, 120)
+        RXPFrame:SetWidth(320)
+        RXPFrame:SetHeight(newHeight)
+        addon.settings.profile.frameHeight = newHeight
 
         for n = 1, nframes do
             local frameTop = ScrollChild.framePool[n]:GetTop()
