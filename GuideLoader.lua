@@ -968,6 +968,23 @@ if parsingLogic[tag] then
         tinsert(step.elements, element)
         addon.lastElement = element
     end
+
+    -- Очистка RXP тегов из текста элемента
+    if element then
+        if element.text and type(element.text) == "string" then
+            element.text = element.text:gsub("|c[^|]+", ""):gsub("|r", "")
+            element.text = element.text:gsub("|T[^|]+|t", "")
+            element.text = element.text:gsub("%.target%s+.+$", "")
+            element.text = element.text:gsub("^%s+", ""):gsub("%s+$", "")
+        end
+        if element.tooltipText and type(element.tooltipText) == "string" then
+            element.tooltipText = element.tooltipText:gsub("|c[^|]+", ""):gsub("|r", "")
+            element.tooltipText = element.tooltipText:gsub("|T[^|]+|t", "")
+            element.tooltipText = element.tooltipText:gsub("%.target%s+.+$", "")
+            element.tooltipText = element.tooltipText:gsub("^%s+", ""):gsub("%s+$", "")
+        end
+    end
+
     return element
 end
 
