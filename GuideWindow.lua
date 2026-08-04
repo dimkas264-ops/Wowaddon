@@ -783,7 +783,7 @@ function addon.SetStep(n, n2, loopback)
     end
 
     table.wipe(activeSteps)
-    table.wipe(addon.questAccept)
+    -- questAccept НЕ очищаем — нужен для отслеживания abandoned квестов
     table.wipe(addon.questTurnIn)
     table.wipe(addon.activeItems)
     table.wipe(addon.activeSpells)
@@ -818,9 +818,24 @@ function addon.SetStep(n, n2, loopback)
         end
     end
 
-    local step = guide.steps[n]
+     local step = guide.steps[n]
     local req = step.requires and guide.labels and guide.labels[step.requires] and guide.steps[guide.labels[step.requires]]
-    if step.completed and n < #guide.steps then
+
+    -- ФОРСИРОВАННЫЙ РЕЖИМ: при возврате к шагу (например, после отмены квеста)
+    -- шаг ВСЕГДА добавляется в activeSteps, игнорируя проверки requires/level
+    if addon.forceStepLoad then
+        if step then
+            step.completed = false
+            addon.settings.ReplaceColors(step)
+            tinsert(activeSteps, step)
+            if ScrollChild.framePool[n] then
+                ScrollChild.framePool[n]:SetAlpha(1)
+            end
+            step.active = true
+            scrollHeight = n
+        end
+        addon.forceStepLoad = nil
+    elseif step.completed and n < #guide.steps then
         return addon.SetStep(n + 1)
     elseif step and not step.completed and
         not (req and #activeSteps > 0 and (req.active or not req.reqFulfilled)) and
@@ -1042,6 +1057,7 @@ function addon.SetStep(n, n2, loopback)
 
     -- НОВОЕ: обновляем строку с актуальной задачей
     addon.UpdateCurrentTask()
+ print("|cff33ff99RXP|r: SetStep finished, currentStep=" .. tostring(RXPCData.currentStep) .. " activeSteps=" .. tostring(#activeSteps))
 end
 
 -- ============================================================
@@ -1079,7 +1095,7 @@ function CurrentStepFrame.UpdateText()
             stepframe:SetMovable(false)
             anchor = c
 
-            stepframe.number.text:SetText(step.title or (fmt(L("Step %d"), loopStepIndex)))
+            stepframe.number.text:SetText(step.title or (fmt(L("Step %d"), loopStepIndex or 1)))
             stepframe.number:SetSize(stepframe.number.text:GetStringWidth() + 10, 17)
 
             e = 0
@@ -1213,7 +1229,14 @@ function CurrentStepFrame.UpdateText()
         end
     end
 
-    CurrentStepFrame:SetHeight(math.max(totalHeight - 5, 0.001))
+    -- Скрываем лишние фреймы шагов
+ for n = c + 1, #CurrentStepFrame.framePool do
+    if CurrentStepFrame.framePool[n] then
+        CurrentStepFrame.framePool[n]:Hide()
+    end
+ end
+
+ CurrentStepFrame:SetHeight(math.max(totalHeight - 5, 0.001))
 end
 
 -- ============================================================
@@ -1526,7 +1549,7 @@ function addon:LoadGuide(guide, isLoading)
     end
 
     addon:FetchGuide(guide)
-    if not guide.steps then return end
+        if not guide.steps then return end
 
     if not guide.key then guide.key = addon.BuildGuideKey(guide) end
     if not guide.version then guide.version = 0 end
@@ -1543,7 +1566,14 @@ function addon:LoadGuide(guide, isLoading)
     RXPCData.currentGuideGroup = guide.group
 
     -- Проверяем и сбрасываем currentStep если нужно
-    RXPCData.currentStep = RXPCData.currentStep or 1
+    -- Очищаем отслеживание квестов при загрузке нового гайда
+    -- questAccept НЕ очищаем — заполняется при парсинге гайда
+ table.wipe(addon.questTurnIn)
+ if addon.previousQuestLogState then
+  table.wipe(addon.previousQuestLogState)
+ end
+
+ RXPCData.currentStep = RXPCData.currentStep or 1
 
     -- Если currentStep вне диапазона или шаг уже выполнен — сбрасываем на 1
     if RXPCData.currentStep > #guide.steps then
