@@ -1064,6 +1064,9 @@ function addon.SetStep(n, n2, loopback)
     BottomFrame:StepScroll(scrollHeight)
     addon.updateBottomFrame = true
 
+    -- Обновляем высоту окна под 3 видимых шага
+    addon.UpdateWindowHeight()
+
     -- НОВОЕ: обновляем строку с актуальной задачей
     addon.UpdateCurrentTask()
  print("|cff33ff99RXP|r: SetStep finished, currentStep=" .. tostring(RXPCData.currentStep) .. " activeSteps=" .. tostring(#activeSteps))
@@ -1246,6 +1249,38 @@ function CurrentStepFrame.UpdateText()
  end
 
  CurrentStepFrame:SetHeight(math.max(totalHeight - 5, 0.001))
+end
+
+-- ============================================================
+-- WINDOW HEIGHT UPDATE
+-- ============================================================
+
+function addon.UpdateWindowHeight()
+    if not addon.currentGuide then return end
+    local visibleStepsHeight = 0
+    local stepsCounted = 0
+    local currentStepIdx = RXPCData.currentStep or 1
+    local nsteps = #addon.currentGuide.steps
+
+    for s = currentStepIdx, nsteps do
+        local step = addon.currentGuide.steps[s]
+        if step and IsFrameShown(nil, step) then
+            local frame = ScrollChild.framePool[s]
+            if frame and frame:IsShown() and frame:GetHeight() > 1 then
+                local textH = frame.text and frame.text:GetStringHeight() or 20
+                local stepH = math.max(28, textH + 8)
+                visibleStepsHeight = visibleStepsHeight + stepH + 1
+                stepsCounted = stepsCounted + 1
+                if stepsCounted >= 3 then break end
+            end
+        end
+    end
+
+    local newHeight = 35 + visibleStepsHeight + 22 + 12
+    newHeight = math.max(newHeight, 120)
+    RXPFrame:SetWidth(320)
+    RXPFrame:SetHeight(newHeight)
+    addon.settings.profile.frameHeight = newHeight
 end
 
 -- ============================================================
@@ -1531,33 +1566,6 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         ScrollChild:SetHeight(totalHeight)
         stepPos[0] = totalHeight
 
-        -- Высота окна подстраивается под первые 3 видимых шага от текущего
-        local visibleStepsHeight = 0
-        local stepsCounted = 0
-        local currentStepIdx = RXPCData.currentStep or 1
-        for s = currentStepIdx, nframes do
-            local step = addon.currentGuide.steps[s]
-            if step and IsFrameShown(nil, step) then
-                local stepH = 28
-                if stepPos[s] then
-                    if stepPos[s+1] then
-                        stepH = stepPos[s+1] - stepPos[s]
-                    else
-                        stepH = stepPos[0] - stepPos[s]
-                    end
-                end
-                stepH = math.max(stepH, 28)
-                visibleStepsHeight = visibleStepsHeight + stepH + 1
-                stepsCounted = stepsCounted + 1
-                if stepsCounted >= 3 then break end
-            end
-        end
-        local newHeight = 35 + visibleStepsHeight + 22 + 12
-        newHeight = math.max(newHeight, 120)
-        RXPFrame:SetWidth(320)
-        RXPFrame:SetHeight(newHeight)
-        addon.settings.profile.frameHeight = newHeight
-
         for n = 1, nframes do
             local frameTop = ScrollChild.framePool[n]:GetTop()
             local childTop = ScrollChild:GetTop()
@@ -1568,6 +1576,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
             end
         end
     end
+    addon.UpdateWindowHeight()
 end
 
 function addon:LoadGuide(guide, isLoading)
