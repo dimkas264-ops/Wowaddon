@@ -1360,11 +1360,6 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     if addon.ReplaceNpcIds then
                         rawtext = addon.ReplaceNpcIds(rawtext, element)
                     end
-                    -- Добавляем иконку элемента
-                    local icon = element.icon or addon.icons[element.tag] or ""
-                    if icon ~= "" then
-                        rawtext = icon .. " " .. rawtext
-                    end
                     if not text then text = " " .. rawtext
                     else text = text .. "\n " .. rawtext end
                 end
@@ -1502,13 +1497,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     end
 
                     if rawtext then
-                        local icon = element.icon or addon.icons[element.tag] or ""
-                        if icon ~= "" then
-                            rawtext = icon .. " " .. rawtext
-                        end
-
-                        if not text then
-                            text = rawtext
+                        if not text then text = rawtext
                         else
                             text = text .. "\n" .. rawtext
                         end
