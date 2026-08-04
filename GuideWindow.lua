@@ -1376,9 +1376,10 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         if frame.icon then
             local stepIcon = step.icon or addon.icons[step.elements and step.elements[1] and step.elements[1].tag] or ""
             if stepIcon and stepIcon ~= "" then
-                frame.icon:SetTexture(stepIcon)
+                frame.icon:SetText(stepIcon)
                 frame.icon:Show()
             else
+                frame.icon:SetText("")
                 frame.icon:Hide()
             end
         end
@@ -1429,8 +1430,8 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 ScrollChild.framePool[n] = CreateFrame("Frame", "$parent_frame" .. n, ScrollChild)
                 frame = ScrollChild.framePool[n]
 
-                frame.icon = frame:CreateTexture(nil, "ARTWORK")
-                frame.icon:SetSize(16, 16)
+                frame.icon = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                frame.icon:SetFont(addon.font, 14, "")
                 frame.icon:SetPoint("LEFT", frame, "LEFT", 6, 0)
 
                 frame.number = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1520,9 +1521,10 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     local firstElement = step.elements and step.elements[1]
                     local stepIcon = firstElement and (firstElement.icon or addon.icons[firstElement.tag]) or ""
                     if stepIcon and stepIcon ~= "" then
-                        frame.icon:SetTexture(stepIcon)
+                        frame.icon:SetText(stepIcon)
                         frame.icon:Show()
                     else
+                        frame.icon:SetText("")
                         frame.icon:Hide()
                     end
 
