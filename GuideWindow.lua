@@ -325,12 +325,18 @@ if not ScrollBar then
     ScrollBar = CreateFrame("Slider", "$parentScrollBar", ScrollFrame, "UIPanelScrollBarTemplate")
 end
 ScrollFrame.ScrollBar = ScrollBar
+ScrollFrame.scrollBar = ScrollBar  -- 3.3.5 compatibility
 ScrollBar:SetFrameLevel(ScrollFrame:GetFrameLevel() + 2)
 ScrollBar:Show()
 ScrollBar:EnableMouse(true)
 ScrollBar:SetMinMaxValues(0, 0)
 ScrollBar:SetValue(0)
 ScrollBar:SetValueStep(1)
+
+-- Связь ScrollBar со ScrollFrame для 3.3.5
+ScrollBar:SetScript("OnValueChanged", function(self, value)
+    ScrollFrame:SetVerticalScroll(value)
+end)
 
 local track = _G[ScrollBar:GetName() .. "Track"]
 if track then track:SetAlpha(0) end
@@ -369,6 +375,7 @@ if downButton then
 end
 
 ScrollFrame:SetScrollChild(ScrollChild)
+ScrollFrame:UpdateScrollChildRect()
 ScrollChild:SetWidth(295)
 
 -- ============================================================
@@ -1564,6 +1571,15 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         if ScrollFrame.ScrollBar then
             ScrollFrame.ScrollBar:SetMinMaxValues(0, scrollRange)
             ScrollFrame.ScrollBar:SetValueStep(1)
+            -- Ручное обновление состояния стрелок для 3.3.5
+            local upBtn = _G[ScrollFrame.ScrollBar:GetName() .. "ScrollUpButton"]
+            local downBtn = _G[ScrollFrame.ScrollBar:GetName() .. "ScrollDownButton"]
+            if upBtn then
+                if scrollRange <= 0 then upBtn:Disable() else upBtn:Enable() end
+            end
+            if downBtn then
+                if scrollRange <= 0 then downBtn:Disable() else downBtn:Enable() end
+            end
         end
 
         for n = 1, nframes do
