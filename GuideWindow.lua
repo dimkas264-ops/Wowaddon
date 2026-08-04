@@ -1377,23 +1377,8 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         end
 
         if frame.icon then
-            local stepIcon = step.icon or ""
-            if stepIcon == "" and step.elements then
-                for _, el in ipairs(step.elements) do
-                    local icon = el.icon or addon.icons[el.tag]
-                    if icon and icon ~= "" and el.tag ~= "goto" and el.tag ~= "waypoint" then
-                        stepIcon = icon
-                        break
-                    end
-                end
-            end
-            if stepIcon and stepIcon ~= "" then
-                frame.icon:SetText(stepIcon)
-                frame.icon:Show()
-            else
-                frame.icon:SetText("")
-                frame.icon:Hide()
-            end
+            frame.icon:SetText("")
+            frame.icon:Hide()
         end
 
         if frame.text then
