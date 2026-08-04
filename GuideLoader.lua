@@ -900,7 +900,7 @@ local function parseLine(linetext, step, parsingLogic)
         return ""
     end)
 
-    line:gsub("^%s*%.(%S+)%s*(.*)", function(tag, args)
+    line:gsub("^%.(%S+)%s*(.*)", function(tag, args)
         local t = {}
 
         if addon.separators[tag] then
@@ -926,10 +926,6 @@ if parsingLogic[tag] then
             if element.parent then
                 element.parent = addon.lastObjective
             end
-            -- Ensure element.icon is set early to avoid being lost by later processing
-if element and not element.icon then
-    element.icon = addon.icons[element.tag] or ""
-end
         else
             local ltext
             if #linetext > 150 then
@@ -977,14 +973,9 @@ end
     if element then
         if element.text and type(element.text) == "string" then
             element.text = element.text:gsub("|c[^|]+", ""):gsub("|r", "")
-            element.text = element.text:gsub("|T[^|]+|t", "")
+            -- НЕ очищаем |T...|t — иконки должны оставаться в тексте
             element.text = element.text:gsub("%.target%s+.+$", "")
             element.text = element.text:gsub("^%s+", ""):gsub("%s+$", "")
-            -- Добавляем иконку элемента к тексту
-            local icon = element.icon or addon.icons[element.tag] or ""
-            if icon ~= "" then
-                element.text = icon .. " " .. element.text
-            end
         end
         if element.tooltipText and type(element.tooltipText) == "string" then
             element.tooltipText = element.tooltipText:gsub("|c[^|]+", ""):gsub("|r", "")
