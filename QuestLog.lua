@@ -39,7 +39,6 @@ local GetAbandonQuestName = _G.GetAbandonQuestName
 local GetAbandonQuestItems = _G.GetAbandonQuestItems
 local IsUnitOnQuest = _G.IsUnitOnQuest
 local GetQuestDifficultyColor = _G.GetQuestDifficultyColor
-local GetQuestLogIndexByID = _G.GetQuestLogIndexByID
 
 -- В 3.3.5 GetQuestIDFromLogIndex НЕ СУЩЕСТВУЕТ
 local GetQuestIDFromLogIndex = _G.GetQuestIDFromLogIndex or function(questIndex) return nil end
@@ -175,7 +174,7 @@ function addon.QuestLog.GetQuestDifficultyColor(level)
 end
 
 function addon.QuestLog.GetQuestLogIndexByID(questID)
-    return GetQuestLogIndexByID(questID)
+    return addon.GetQuestLogIndexByID(questID)
 end
 
 function addon.QuestLog.GetQuestIDFromLogIndex(questIndex)
@@ -191,6 +190,14 @@ end
 addon.questCache = {}
 addon.questLogCache = {}
 addon.questLogIndexCache = {}
+addon.questAccept = addon.questAccept or {}
+addon.questTurnIn = addon.questTurnIn or {}
+addon.previousQuestLogState = addon.previousQuestLogState or {}
+
+addon.previousQuestLogState = addon.previousQuestLogState or {}
+
+addon.questAccept = addon.questAccept or {}
+addon.questTurnIn = addon.questTurnIn or {}
 
 function addon.UpdateQuestLogCache()
     table.wipe(addon.questLogCache)
@@ -218,10 +225,15 @@ end
 -- ИСПРАВЛЕНО: Используем прямой вызов GetQuestLogIndexByID
 function addon.GetQuestLogIndexByID(questID)
     if not questID then return nil end
-    -- Прямой вызов глобальной функции 3.3.5
-    local index = GetQuestLogIndexByID(questID)
-    if index and index > 0 then
-        return index
+    local numEntries = GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local link = GetQuestLink(i)
+        if link then
+            local id = tonumber(link:match("quest:(%d+)"))
+            if id == questID then
+                return i
+            end
+        end
     end
     return nil
 end
@@ -229,14 +241,14 @@ end
 -- ИСПРАВЛЕНО: Прямая проверка через GetQuestLogIndexByID
 function addon.IsQuestInLog(questID)
     if not questID then return false end
-    local index = GetQuestLogIndexByID(questID)
+    local index = addon.GetQuestLogIndexByID(questID)
     return index and index > 0
 end
 
 -- ИСПРАВЛЕНО: Получаем info через GetQuestLogIndexByID + GetQuestLogTitle
 function addon.GetQuestLogInfo(questID)
     if not questID then return nil end
-    local index = GetQuestLogIndexByID(questID)
+    local index = addon.GetQuestLogIndexByID(questID)
     if not index or index == 0 then return nil end
 
     local questTitle, level, questTag, suggestedGroup, isHeader, isCollapsed, isComplete, isDaily = GetQuestLogTitle(index)
@@ -259,7 +271,7 @@ end
 
 function addon.GetQuestObjectives(questID)
     if not questID then return nil end
-    local questIndex = GetQuestLogIndexByID(questID)
+    local questIndex = addon.GetQuestLogIndexByID(questID)
     if not questIndex or questIndex == 0 then return nil end
 
     local objectives = {}
@@ -320,14 +332,14 @@ function addon.IsQuestWatchedByID(questID)
 end
 
 function addon.WatchQuestByID(questID)
-    local questIndex = GetQuestLogIndexByID(questID)
+    local questIndex = addon.GetQuestLogIndexByID(questID)
     if questIndex and questIndex > 0 and not IsQuestWatched(questIndex) then
         AddQuestWatch(questIndex)
     end
 end
 
 function addon.UnwatchQuestByID(questID)
-    local questIndex = GetQuestLogIndexByID(questID)
+    local questIndex = addon.GetQuestLogIndexByID(questID)
     if questIndex and questIndex > 0 and IsQuestWatched(questIndex) then
         RemoveQuestWatch(questIndex)
     end
@@ -407,7 +419,7 @@ end
 -- ============================================================
 
 function addon.GetQuestRewardChoices(questID)
-    local questIndex = GetQuestLogIndexByID(questID)
+    local questIndex = addon.GetQuestLogIndexByID(questID)
     if not questIndex or questIndex == 0 then return {} end
 
     local choices = {}
@@ -429,7 +441,7 @@ function addon.GetQuestRewardChoices(questID)
 end
 
 function addon.GetQuestRewards(questID)
-    local questIndex = GetQuestLogIndexByID(questID)
+    local questIndex = addon.GetQuestLogIndexByID(questID)
     if not questIndex or questIndex == 0 then return {} end
 
     local rewards = {}
@@ -463,15 +475,26 @@ questLogFrame:SetScript("OnEvent", function(self, event, ...)
         print("RXP DEBUG: EVENT " .. event .. " fired!")
         addon.UpdateQuestLogCache()
         addon.UpdateTrackedQuests()
+        
+        -- Проверяем отменённые квесты (abandon)
+        for questID, _ in pairs(addon.questAccept) do
+            local nowInLog = addon.IsQuestInLog(questID)
+            local wasInLog = addon.previousQuestLogState[questID]
+            if wasInLog and not nowInLog and not addon.questTurnIn[questID] then
+                addon.OnQuestAbandoned(questID)
+            end
+            addon.previousQuestLogState[questID] = nowInLog
+        end
+        
         addon.updateStepText = true
-        addon.updateSteps = true  -- Добавляем обновление шагов
+        addon.updateSteps = true
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         local unit = ...
         if unit == "player" then
             addon.UpdateQuestLogCache()
             addon.UpdateTrackedQuests()
             addon.updateStepText = true
-            addon.updateSteps = true  -- Добавляем обновление шагов
+            addon.updateSteps = true
         end
     end
 end)
@@ -520,4 +543,129 @@ function addon.CacheQuestName(questID, name)
     if name and name ~= "" then
         RXPData.questNames[questID] = name
     end
+end
+
+
+-- ============================================================
+-- QUEST ABANDONED HANDLER
+-- Возврат к предыдущему шагу при отмене квеста
+-- ============================================================
+
+function addon.OnQuestAbandoned(questID)
+    if not questID then return end
+    if not addon.currentGuide then return end
+
+    -- Ищем шаг с .accept для этого квеста
+    local targetStep = nil
+    for i, step in ipairs(addon.currentGuide.steps or {}) do
+        for _, element in ipairs(step.elements or {}) do
+            if element.tag == "accept" and element.questId == questID then
+                targetStep = i
+                break
+            end
+        end
+        if targetStep then break end
+    end
+
+    if not targetStep then return end
+
+    local currentStep = RXPCData.currentStep or 1
+    if targetStep > currentStep then return end
+
+    -- Сбрасываем completed у шага с accept и всех последующих шагов
+    for i = targetStep, #addon.currentGuide.steps do
+        local step = addon.currentGuide.steps[i]
+        if step then
+            step.completed = false
+            step.active = nil
+            for _, element in ipairs(step.elements or {}) do
+                element.completed = false
+                element.skip = false
+                if element.questId == questID then
+                    element.questFinished = false
+                    element.questReady = false
+                end
+            end
+        end
+    end
+
+    -- Сбрасываем stepSkip для возвращённых шагов
+    for i = targetStep, #addon.currentGuide.steps do
+        RXPCData.stepSkip[i] = nil
+    end
+
+    -- Удаляем квест из отслеживаемых
+    addon.questAccept[questID] = nil
+    addon.questTurnIn[questID] = nil
+    addon.previousQuestLogState[questID] = nil
+
+    -- Форсированный режим — шаг ВСЕГДА добавится в activeSteps
+    addon.forceStepLoad = true
+    addon.SetStep(targetStep)
+
+    -- Обновляем UI
+    addon.updateBottomFrame = true
+    if addon.RXPFrame and addon.RXPFrame.BottomFrame and addon.RXPFrame.BottomFrame.UpdateFrame then
+        addon.RXPFrame.BottomFrame.UpdateFrame()
+    end
+    addon.UpdateCurrentTask()
+
+    print(string.format("|cff33ff99RXP|r: Quest abandoned (ID: %d), returned to step %d", questID, targetStep))
+end
+
+
+-- ============================================================
+-- QUEST ABANDONED HANDLER
+-- ============================================================
+
+function addon.OnQuestAbandoned(questID)
+    if not questID then return end
+    if not addon.currentGuide then return end
+    
+    local targetStep = nil
+    for i, step in ipairs(addon.currentGuide.steps or {}) do
+        for _, element in ipairs(step.elements or {}) do
+            if element.tag == "accept" and element.questId == questID then
+                targetStep = i
+                break
+            end
+        end
+        if targetStep then break end
+    end
+    
+    if not targetStep then return end
+    
+    local currentStep = RXPCData.currentStep or 1
+    if targetStep > currentStep then return end
+    
+    for i = targetStep, #addon.currentGuide.steps do
+        local step = addon.currentGuide.steps[i]
+        if step then
+            step.completed = false
+            step.active = nil
+            for _, element in ipairs(step.elements or {}) do
+                element.completed = false
+                element.skip = false
+            end
+        end
+    end
+    
+    for i = targetStep, #addon.currentGuide.steps do
+        RXPCData.stepSkip[i] = nil
+    end
+    
+    addon.questAccept[questID] = nil
+    addon.questTurnIn[questID] = nil
+    addon.previousQuestLogState[questID] = nil
+    
+    addon.forceStepLoad = true
+    addon.SetStep(targetStep)
+    
+    addon.updateBottomFrame = true
+    if addon.RXPFrame and addon.RXPFrame.BottomFrame and addon.RXPFrame.BottomFrame.UpdateFrame then
+        addon.RXPFrame.BottomFrame.UpdateFrame()
+    end
+    addon.UpdateCurrentTask()
+    
+    print(string.format("|cff33ff99RXP|r: Quest abandoned (ID: %d), returned to step %d", questID, targetStep))
 end
