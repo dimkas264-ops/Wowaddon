@@ -159,11 +159,11 @@ addon.functions.accept = function(self, text, ...)
     -- RUNTIME
     local element = self.element or self
     if not element then return end
-    if element.questId then
-        addon.questAccept = addon.questAccept or {}
-        addon.questAccept[element.questId] = true
-        print("|cff33ff99RXP|r: [RUNTIME] accept questId=" .. element.questId)
-    end
+    -- if element.questId then
+    --    addon.questAccept = addon.questAccept or {}
+    --    addon.questAccept[element.questId] = true
+    --    print("|cff33ff99RXP|r: [RUNTIME] accept questId=" .. element.questId)
+    -- end
 
     local element = self.element or self
     if not element then return end
