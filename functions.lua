@@ -3,9 +3,6 @@ local addonName, addon = ...
 local L = addon.locale.Get
 local fmt = string.format
 
--- Инициализация отслеживания квестов
-addon.questAccept = addon.questAccept or {}
-addon.questTurnIn = addon.questTurnIn or {}
 -- ============================================================
 -- GUIDE STEP FUNCTIONS
 -- Адаптировано для WoW 3.3.5
@@ -156,7 +153,6 @@ addon.functions.accept = function(self, text, ...)
         if element.questId then
             addon.questAccept = addon.questAccept or {}
             addon.questAccept[element.questId] = true
-            print("|cff33ff99RXP|r: [PARSE] accept questId=" .. element.questId)
         end
         return element
     end
