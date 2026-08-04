@@ -973,7 +973,6 @@ if parsingLogic[tag] then
     if element then
         if element.text and type(element.text) == "string" then
             element.text = element.text:gsub("|c[^|]+", ""):gsub("|r", "")
-            -- НЕ очищаем |T...|t — иконки должны оставаться в тексте
             element.text = element.text:gsub("%.target%s+.+$", "")
             element.text = element.text:gsub("^%s+", ""):gsub("%s+$", "")
         end
