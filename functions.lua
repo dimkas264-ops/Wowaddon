@@ -3,9 +3,13 @@ local addonName, addon = ...
 local L = addon.locale.Get
 local fmt = string.format
 
+-- Инициализация отслеживания квестов
+addon.questAccept = addon.questAccept or {}
+addon.questTurnIn = addon.questTurnIn or {}
 -- ============================================================
 -- GUIDE STEP FUNCTIONS
 -- Адаптировано для WoW 3.3.5
+-- Переписано: функции теперь создают element при парсинге
 -- ============================================================
 
 local GetSpellInfo = _G.GetSpellInfo
@@ -96,8 +100,18 @@ end
 -- GOTO / WAYPOINT
 -- ============================================================
 
-addon.functions.goto = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.goto = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        local args = {...}
+        element.zone = args[1]
+        element.x = tonumber(args[2])
+        element.y = tonumber(args[3])
+        element.radius = tonumber(args[4]) or 0.002
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -133,21 +147,38 @@ addon.functions.waypoint = addon.functions.goto
 -- ACCEPT QUEST
 -- ============================================================
 
-addon.functions.accept = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.accept = function(self, text, ...)
+    if type(self) == "string" then
+        -- ПАРСИНГ
+        local element = {}
+        element.text = text
+        element.questId = tonumber((...))
+        if element.questId then
+            addon.questAccept = addon.questAccept or {}
+            addon.questAccept[element.questId] = true
+            print("|cff33ff99RXP|r: [PARSE] accept questId=" .. element.questId)
+        end
+        return element
+    end
+    -- RUNTIME
+    local element = self.element or self
+    if not element then return end
+    if element.questId then
+        addon.questAccept = addon.questAccept or {}
+        addon.questAccept[element.questId] = true
+        print("|cff33ff99RXP|r: [RUNTIME] accept questId=" .. element.questId)
+    end
+
     local element = self.element or self
     if not element then return end
 
     local questID = element.questId
     if not questID then return end
 
-    -- Отмечаем, что квест отслеживается
     addon.questAccept[questID] = true
 
-    -- Проверяем, взят ли квест
     local inLog = addon.IsQuestInLog(questID)
 
-    -- ОТЛАДКА
     if addon.settings and addon.settings.profile and addon.settings.profile.debug then
         print("RXP accept check: questID=" .. tostring(questID) .. " inLog=" .. tostring(inLog))
     end
@@ -165,15 +196,24 @@ end
 -- TURNIN QUEST
 -- ============================================================
 
-addon.functions.turnin = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.turnin = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.questId = tonumber((...))
+        if element.questId then
+            addon.questAccept[element.questId] = true
+            print("|cff33ff99RXP|r: accept parsed questId=" .. element.questId .. " questAccept count=" .. (function() local c=0 for _ in pairs(addon.questAccept) do c=c+1 end return c end)())
+        end
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
     local questID = element.questId
     if not questID then return end
 
-    -- Квест сдан, если его нет в журнале и он был взят ранее
     local inLog = addon.IsQuestInLog(questID)
     local wasAccepted = addon.questAccept[questID]
 
@@ -184,7 +224,6 @@ addon.functions.turnin = function(self, ...)
         return true
     end
 
-    -- Также проверяем, готов ли квест к сдаче (complete)
     if inLog then
         local info = addon.GetQuestLogInfo(questID)
         if info and info.complete == 1 then
@@ -199,15 +238,24 @@ end
 -- COMPLETE QUEST OBJECTIVES
 -- ============================================================
 
-addon.functions.complete = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.complete = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.questId = tonumber((...))
+        if element.questId then
+            addon.questAccept[element.questId] = true
+            print("|cff33ff99RXP|r: accept parsed questId=" .. element.questId .. " questAccept count=" .. (function() local c=0 for _ in pairs(addon.questAccept) do c=c+1 end return c end)())
+        end
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
     local questID = element.questId
     if not questID then return end
 
-    -- Отмечаем, что квест отслеживается
     addon.questAccept[questID] = true
 
     local objectives = addon.GetQuestObjectives(questID)
@@ -215,7 +263,6 @@ addon.functions.complete = function(self, ...)
 
     local allComplete = true
     for i, obj in ipairs(objectives) do
-        -- В 3.3.5 finished может быть nil или 1
         if not obj.finished or obj.finished == 0 or obj.finished == false then
             allComplete = false
             break
@@ -235,8 +282,13 @@ end
 -- SKIP STEP
 -- ============================================================
 
-addon.functions.skip = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.skip = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -249,8 +301,14 @@ end
 -- HEARTHSTONE / HOME
 -- ============================================================
 
-addon.functions.home = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.home = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.location = ...
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -266,8 +324,13 @@ end
 -- FLY / FLIGHT PATH
 -- ============================================================
 
-addon.functions.fly = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.fly = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -284,8 +347,17 @@ addon.functions.fp = addon.functions.fly
 -- TRAIN / LEARN SPELL
 -- ============================================================
 
-addon.functions.train = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.train = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        local args = {...}
+        element.spellId = tonumber(args[1])
+        element.skill = args[1] and not tonumber(args[1]) and args[1] or nil
+        element.requiredLevel = tonumber(args[2]) or 1
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -313,8 +385,16 @@ addon.functions.learn = addon.functions.train
 -- VENDOR / BUY / SELL
 -- ============================================================
 
-addon.functions.vendor = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.vendor = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        local args = {...}
+        element.itemId = tonumber(args[1])
+        element.requiredCount = tonumber(args[2]) or 1
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -335,8 +415,13 @@ addon.functions.sell = addon.functions.vendor
 -- REPAIR
 -- ============================================================
 
-addon.functions.repair = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.repair = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -349,8 +434,13 @@ end
 -- BANK
 -- ============================================================
 
-addon.functions.bank = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.bank = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -363,8 +453,13 @@ end
 -- AUCTION
 -- ============================================================
 
-addon.functions.auction = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.auction = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -377,8 +472,13 @@ end
 -- MAIL
 -- ============================================================
 
-addon.functions.mail = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.mail = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -391,8 +491,13 @@ end
 -- STABLE
 -- ============================================================
 
-addon.functions.stable = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.stable = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -405,8 +510,14 @@ end
 -- TAME PET
 -- ============================================================
 
-addon.functions.tame = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.tame = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.npcId = tonumber((...))
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -421,8 +532,13 @@ end
 -- DIE / DEATHSKIP
 -- ============================================================
 
-addon.functions.die = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.die = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -439,8 +555,14 @@ addon.functions.deathskip = addon.functions.die
 -- REACH LEVEL
 -- ============================================================
 
-addon.functions.reach = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.reach = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.level = tonumber((...))
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -456,8 +578,14 @@ end
 -- XP REQUIREMENT
 -- ============================================================
 
-addon.functions.xp = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.xp = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.xp = tonumber((...))
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -473,8 +601,16 @@ end
 -- REPUTATION
 -- ============================================================
 
-addon.functions.reputation = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.reputation = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        local args = {...}
+        element.faction = args[1]
+        element.standing = tonumber(args[2]) or 4
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -498,8 +634,16 @@ end
 -- SKILL
 -- ============================================================
 
-addon.functions.skill = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.skill = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        local args = {...}
+        element.skill = args[1]
+        element.requiredLevel = tonumber(args[2]) or 1
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -517,8 +661,14 @@ end
 -- MONEY
 -- ============================================================
 
-addon.functions.money = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.money = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.amount = tonumber((...))
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -534,8 +684,16 @@ end
 -- ITEM
 -- ============================================================
 
-addon.functions.item = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.item = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        local args = {...}
+        element.itemId = tonumber(args[1])
+        element.requiredCount = tonumber(args[2]) or 1
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -553,8 +711,14 @@ end
 -- EQUIP ITEM
 -- ============================================================
 
-addon.functions.equip = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.equip = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.itemId = tonumber((...))
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -577,8 +741,14 @@ end
 -- SPELL
 -- ============================================================
 
-addon.functions.spell = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.spell = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.spellId = tonumber((...))
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -595,8 +765,14 @@ end
 -- TALENT
 -- ============================================================
 
-addon.functions.talent = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.talent = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.talent = ...
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -611,8 +787,14 @@ end
 -- PET
 -- ============================================================
 
-addon.functions.pet = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.pet = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.pet = ...
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -627,8 +809,14 @@ end
 -- MOUNT
 -- ============================================================
 
-addon.functions.mount = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.mount = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.mount = ...
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -643,8 +831,14 @@ end
 -- ACHIEVEMENT
 -- ============================================================
 
-addon.functions.achievement = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.achievement = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.achievementId = tonumber((...))
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -659,8 +853,15 @@ end
 -- TIMER
 -- ============================================================
 
-addon.functions.timer = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.timer = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.time = tonumber((...))
+        element.startTime = GetTime()
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -680,8 +881,14 @@ end
 
 addon.functions.coord = addon.functions.goto
 
-addon.functions.zone = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.zone = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.zone = ...
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -693,8 +900,14 @@ addon.functions.zone = function(self, ...)
     end
 end
 
-addon.functions.subzone = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.subzone = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.subzone = ...
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -706,8 +919,14 @@ addon.functions.subzone = function(self, ...)
     end
 end
 
-addon.functions.minimap = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.minimap = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        element.minimap = ...
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -723,8 +942,13 @@ end
 -- REST
 -- ============================================================
 
-addon.functions.rest = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.rest = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -740,8 +964,13 @@ end
 -- GROUP / SOLO
 -- ============================================================
 
-addon.functions.group = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.group = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -753,8 +982,13 @@ addon.functions.group = function(self, ...)
     end
 end
 
-addon.functions.solo = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.solo = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -770,8 +1004,13 @@ end
 -- HS / BOAT / ZEPPELIN / TRAM / PORTAL / TELEPORT
 -- ============================================================
 
-addon.functions.hs = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.hs = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -780,8 +1019,13 @@ addon.functions.hs = function(self, ...)
     return true
 end
 
-addon.functions.boat = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.boat = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -790,8 +1034,13 @@ addon.functions.boat = function(self, ...)
     return true
 end
 
-addon.functions.zeppelin = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.zeppelin = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -800,8 +1049,13 @@ addon.functions.zeppelin = function(self, ...)
     return true
 end
 
-addon.functions.tram = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.tram = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -810,8 +1064,13 @@ addon.functions.tram = function(self, ...)
     return true
 end
 
-addon.functions.portal = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.portal = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -820,8 +1079,13 @@ addon.functions.portal = function(self, ...)
     return true
 end
 
-addon.functions.teleport = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.teleport = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -834,8 +1098,13 @@ end
 -- DUNGEON / RAID / BATTLEGROUND / ARENA / WORLD
 -- ============================================================
 
-addon.functions.dungeon = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.dungeon = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -844,8 +1113,13 @@ addon.functions.dungeon = function(self, ...)
     return true
 end
 
-addon.functions.raid = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.raid = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -854,8 +1128,13 @@ addon.functions.raid = function(self, ...)
     return true
 end
 
-addon.functions.battleground = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.battleground = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -864,8 +1143,13 @@ addon.functions.battleground = function(self, ...)
     return true
 end
 
-addon.functions.arena = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.arena = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -874,8 +1158,13 @@ addon.functions.arena = function(self, ...)
     return true
 end
 
-addon.functions.world = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.world = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -888,8 +1177,13 @@ end
 -- PVP / RACE / CLASS / PROFESSION / FACTION / HONOR
 -- ============================================================
 
-addon.functions.pvp = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.pvp = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -898,8 +1192,13 @@ addon.functions.pvp = function(self, ...)
     return true
 end
 
-addon.functions.race = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.race = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -908,8 +1207,13 @@ addon.functions.race = function(self, ...)
     return true
 end
 
-addon.functions.class = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.class = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -918,8 +1222,13 @@ addon.functions.class = function(self, ...)
     return true
 end
 
-addon.functions.profession = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.profession = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -928,8 +1237,13 @@ addon.functions.profession = function(self, ...)
     return true
 end
 
-addon.functions.faction = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.faction = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -938,8 +1252,13 @@ addon.functions.faction = function(self, ...)
     return true
 end
 
-addon.functions.honor = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.honor = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -948,8 +1267,13 @@ addon.functions.honor = function(self, ...)
     return true
 end
 
-addon.functions.custom = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.custom = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
@@ -962,8 +1286,13 @@ end
 -- TEXT / NOTE / WARNING / TIP / INFO / LINK / IMAGE / VIDEO / AUDIO
 -- ============================================================
 
-addon.functions.text = function(self, ...)
-    if type(self) == "string" then return self end
+addon.functions.text = function(self, text, ...)
+    if type(self) == "string" then
+        local element = {}
+        element.text = text
+        return element
+    end
+
     local element = self.element or self
     if not element then return end
 
