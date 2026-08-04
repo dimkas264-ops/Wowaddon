@@ -14,8 +14,6 @@ end
 
 local L = addon.locale.Get
 
-print("RXP GuideWindow.lua loaded - v2")
-
 -- Fallback для шрифта (если еще не инициализирован)
 addon.font = addon.font or "Fonts\\FRIZQT__.TTF"
 
@@ -225,7 +223,6 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
     if guide and RXPCData.currentStep then
         local currentStep = guide.steps[RXPCData.currentStep]
         if currentStep then
-            print("RXP DIRECT: Step " .. RXPCData.currentStep .. " has " .. #currentStep.elements .. " elements")
             for i, element in ipairs(currentStep.elements or {}) do
                 print("RXP DIRECT: Element " .. i .. " tag=" .. tostring(element.tag) .. " questId=" .. tostring(element.questId) .. " text=" .. tostring(element.text and element.text:sub(1, 30)))
                 if element.tag == "accept" and element.questId then
@@ -234,7 +231,6 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
                     print("RXP DIRECT: accept result=" .. tostring(result))
                     if result then
                         element.completed = true
-                        print("RXP DIRECT: Element marked completed!")
                     end
                 end
             end
@@ -252,7 +248,6 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
 
             if allComplete then
                 currentStep.completed = true
-                print("RXP DIRECT: Step completed! Loading next...")
                 if RXPCData.currentStep < #guide.steps then
                     addon.SetStep(RXPCData.currentStep + 1)
                 end
@@ -273,10 +268,8 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
         addon.UpdateCurrentTask()
     end
 end)
-print("RXP Quest event handler created!")
 
 -- Прямой тикер для вызова LegacyUpdateLoop (AceTimer не работает в 3.3.5)
-print("RXP Creating tickerFrame...")
 local tickerFrame = CreateFrame("Frame", "RXPTickerFrame")
 tickerFrame.elapsed = 0
 tickerFrame:SetScript("OnUpdate", function(self, elapsed)
@@ -288,7 +281,6 @@ tickerFrame:SetScript("OnUpdate", function(self, elapsed)
         end
     end
 end)
-print("RXP TickerFrame created and running!")
 
 RXPFrame:SetMovable(true)
 RXPFrame:EnableMouse(true)
@@ -1610,9 +1602,7 @@ function addon:LoadGuide(guide, isLoading)
         print("RXP Debug: currentStep =", RXPCData.currentStep)
         print("RXP Debug: activeSteps count =", #activeSteps)
         for i, step in ipairs(activeSteps) do
-            print("RXP Debug: activeStep", i, "index:", step.index, "sticky:", step.sticky and "yes" or "no")
             for j, element in ipairs(step.elements or {}) do
-                print("RXP Debug:   element", j, "tag:", element.tag, "text:", element.text and element.text:sub(1, 50) or "nil")
             end
         end
     end
