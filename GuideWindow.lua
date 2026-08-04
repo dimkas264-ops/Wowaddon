@@ -1145,7 +1145,6 @@ function CurrentStepFrame.UpdateText()
                             rawText = rawText:gsub("^>>%s*", "")
                             -- Убираем цветовые теги |c...|r
                             rawText = rawText:gsub("|c[^|]+", ""):gsub("|r", "")
-                            -- НЕ убираем иконки |T...|t — они должны отображаться
                             -- Убираем target теги
                             rawText = rawText:gsub("%.target%s+.+$", "")
                             -- Убираем лишние пробелы
@@ -1359,6 +1358,11 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     if addon.ReplaceNpcIds then
                         rawtext = addon.ReplaceNpcIds(rawtext, element)
                     end
+                    -- Добавляем иконку элемента (если еще не в тексте)
+                    local icon = element.icon or addon.icons[element.tag] or ""
+                    if icon ~= "" and not rawtext:find("^|T") then
+                        rawtext = icon .. " " .. rawtext
+                    end
                     if not text then text = " " .. rawtext
                     else text = text .. "\n " .. rawtext end
                 end
@@ -1500,9 +1504,9 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                         end
 
                         if displayText and displayText ~= "" then
-                            -- Добавляем иконку элемента
+                            -- Добавляем иконку элемента (если еще не в тексте)
                             local icon = element.icon or addon.icons[element.tag] or ""
-                            if icon ~= "" then
+                            if icon ~= "" and not displayText:find("^|T") then
                                 displayText = icon .. " " .. displayText
                             end
                             rawtext = displayText
@@ -1531,23 +1535,8 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
 
                     frame.number:SetText(string.format("%02d", n))
 
-                    local stepIcon = step.icon or ""
-                    if stepIcon == "" and step.elements then
-                        for _, el in ipairs(step.elements) do
-                            local icon = el.icon or addon.icons[el.tag]
-                            if icon and icon ~= "" and el.tag ~= "goto" and el.tag ~= "waypoint" then
-                                stepIcon = icon
-                                break
-                            end
-                        end
-                    end
-                    if stepIcon and stepIcon ~= "" then
-                        frame.icon:SetText(stepIcon)
-                        frame.icon:Show()
-                    else
-                        frame.icon:SetText("")
-                        frame.icon:Hide()
-                    end
+                    frame.icon:SetText("")
+                    frame.icon:Hide()
 
                     if text and text ~= "" then
                         if frame.text then
