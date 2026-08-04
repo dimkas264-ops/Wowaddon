@@ -32,7 +32,7 @@ function addon.SetResizeBounds(frame, minWidth, minHeight, maxWidth, maxHeight)
     end
 end
 
-addon.width, addon.height = 320, 135
+addon.width, addon.height = 320, 190
 
 -- ============================================================
 -- MAIN FRAME
@@ -451,6 +451,7 @@ RXPFrame.OnMouseUp = function(self, button)
     RXPFrame:StopMovingOrSizing()
     if isResizing then
         addon.settings.profile.frameHeight = RXPFrame:GetHeight()
+        addon.frameHeightSetByUser = true
         -- Обновляем ширину ScrollChild при ресайзе
         ScrollChild:SetWidth(math.max(50, RXPFrame:GetWidth() - 25))
         if addon.currentGuide then
@@ -1467,6 +1468,11 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                             end
                         end
 
+                        -- Очищаем от RXP тегов
+                        displayText = displayText:gsub("|c%x+", ""):gsub("|r", "")
+                        displayText = displayText:gsub("|T[^|]+|t", "")
+                        displayText = displayText:gsub("%.target%s+.+$", "")
+
                         if displayText and displayText ~= "" then
                             rawtext = displayText
                         end
@@ -1506,6 +1512,9 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     if text and text ~= "" then
                         if frame.text then
                             frame.text:SetText(text)
+                            -- Явно задаём ширину для корректного переноса
+                            local textWidth = math.max(50, frame:GetWidth() - 38)
+                            frame.text:SetWidth(textWidth)
                         end
 
                         local textHeight = frame.text and frame.text:GetStringHeight() or 10
@@ -1539,6 +1548,19 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
 
         ScrollChild:SetHeight(totalHeight)
         stepPos[0] = totalHeight
+
+        -- Динамическая высота окна: подстраиваемся под количество шагов (макс 4 видимых)
+        if not addon.frameHeightSetByUser then
+            local maxVisibleSteps = 4
+            local stepHeightEstimate = 30
+            local maxBottomHeight = maxVisibleSteps * stepHeightEstimate
+            local desiredBottomHeight = math.min(totalHeight, maxBottomHeight)
+            local minFrameHeight = 160
+            local newHeight = 35 + desiredBottomHeight + 22 + 12
+            newHeight = math.max(newHeight, minFrameHeight)
+            RXPFrame:SetHeight(newHeight)
+            addon.settings.profile.frameHeight = newHeight
+        end
 
         for n = 1, nframes do
             local frameTop = ScrollChild.framePool[n]:GetTop()
