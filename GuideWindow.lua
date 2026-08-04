@@ -1513,19 +1513,13 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                         end
                     end
 
-                    if rawtext then
-                        local icon = element.icon or addon.icons[element.tag] or ""
-                        if icon ~= "" then
-                            rawtext = icon .. " " .. rawtext
-                        end
-
-                        if not text then
-                            text = rawtext
-                        else
-                            text = text .. "\n" .. rawtext
-                        end
+                                    if rawtext then
+                    if not text then
+                        text = rawtext
+                    else
+                        text = text .. "\n" .. rawtext
                     end
-                end
+                end            end
 
                 if not IsFrameShown(frame, step) then
                     frame:Hide()
