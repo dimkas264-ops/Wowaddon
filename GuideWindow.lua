@@ -140,7 +140,6 @@ end
 
 function RXPFrame:UpdateVisuals()
     BottomFrame:SetBackdrop(nil)
-    BottomFrame:SetBackdropColor(0,0,0,0)
 
     GuideName:SetBackdrop(RXPFrame.backdrop.guideName)
     GuideName:SetBackdropColor(unpack(addon.colors.background))
@@ -222,15 +221,18 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
         if currentStep then
             for i, element in ipairs(currentStep.elements or {}) do
                 print("RXP DIRECT: Element " .. i .. " tag=" .. tostring(element.tag) .. " questId=" .. tostring(element.questId) .. " text=" .. tostring(element.text and element.text:sub(1, 30)))
-                if element.tag == "accept" and element.questId then
-                    print("RXP DIRECT: Checking accept questId=" .. tostring(element.questId))
-                    local result = addon.functions.accept(element)
-                    print("RXP DIRECT: accept result=" .. tostring(result))
-                    if result then
-                        element.completed = true
-                    end
-                end
+        local func = addon.functions[element.tag]
+
+        if func then
+
+            local result = func(element)
+
+            if result then
+                element.completed = true
             end
+
+        end
+    end
 
             -- Проверяем, все ли элементы выполнены
             local allComplete = true
@@ -243,12 +245,13 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
             end
             print("RXP DIRECT: allComplete=" .. tostring(allComplete))
 
-            if allComplete then
-                currentStep.completed = true
-                if RXPCData.currentStep < #guide.steps then
-                    addon.SetStep(RXPCData.currentStep + 1)
+            currentStep.completed = allComplete
+
+                if allComplete then
+                    if RXPCData.currentStep < #guide.steps then
+                        addon.SetStep(RXPCData.currentStep + 1)
+                    end
                 end
-            end
         end
     end
 
@@ -326,6 +329,128 @@ if not ScrollBar then
 end
 ScrollFrame.ScrollBar = ScrollBar
 ScrollFrame.scrollBar = ScrollBar  -- 3.3.5 compatibility
+
+-- ============================================================
+-- Animation Manager
+-- ============================================================
+
+local AnimationManager = {}
+
+AnimationManager.frame = CreateFrame("Frame")
+AnimationManager.frame:Hide()
+
+AnimationManager.startValue = 0
+AnimationManager.targetValue = 0
+AnimationManager.duration = 0.18
+AnimationManager.elapsed = 0
+AnimationManager.running = false
+
+AnimationManager.frame:SetScript("OnUpdate", function(self, elapsed)
+
+    if not AnimationManager.running then
+        return
+    end
+
+    AnimationManager.elapsed = AnimationManager.elapsed + elapsed
+
+    local t = AnimationManager.elapsed / AnimationManager.duration
+
+    if t >= 1 then
+
+        ScrollBar:SetValue(AnimationManager.targetValue)
+
+        AnimationManager.running = false
+        self:Hide()
+
+        return
+
+    end
+
+    -- Ease Out Cubic
+    t = 1 - (1 - t)^3
+
+    local value =
+        AnimationManager.startValue +
+        (AnimationManager.targetValue - AnimationManager.startValue) * t
+
+    ScrollBar:SetValue(value)
+
+end)
+
+function AnimationManager:ScrollTo(target)
+
+    if self.running then
+        self.targetValue = target
+        return
+    end
+
+    self.startValue = ScrollBar:GetValue()
+    self.targetValue = target
+
+    self.elapsed = 0
+
+    local dist = math.abs(target - self.startValue)
+
+    self.duration = math.max(0.08, math.min(0.30, dist / 500))
+
+    self.running = true
+
+    self.frame:Show()
+
+end
+
+local ScrollDelayFrame = CreateFrame("Frame")
+ScrollDelayFrame:Hide()
+
+-- ============================================================
+-- Smooth scroll animation
+-- ============================================================
+
+local ScrollAnimator = CreateFrame("Frame")
+
+ScrollAnimator:Hide()
+
+ScrollAnimator.startValue = 0
+ScrollAnimator.targetValue = 0
+ScrollAnimator.duration = 0.20
+ScrollAnimator.elapsed = 0
+
+function ScrollAnimator:Start(target)
+
+    self.startValue = ScrollBar:GetValue()
+    self.targetValue = target
+    self.elapsed = 0
+
+    self:Show()
+
+end
+
+ScrollAnimator:SetScript("OnUpdate", function(self, elapsed)
+
+    self.elapsed = self.elapsed + elapsed
+
+    local t = self.elapsed / self.duration
+
+    if t >= 1 then
+
+        ScrollBar:SetValue(self.targetValue)
+
+        self:Hide()
+
+        return
+
+    end
+
+    -- Ease Out Quad
+    t = 1 - (1 - t) * (1 - t)
+
+    local value =
+        self.startValue +
+        (self.targetValue - self.startValue) * t
+
+    ScrollBar:SetValue(value)
+
+end)
 ScrollBar:SetFrameLevel(ScrollFrame:GetFrameLevel() + 2)
 ScrollBar:Show()
 ScrollBar:EnableMouse(true)
@@ -377,6 +502,38 @@ end
 ScrollFrame:SetScrollChild(ScrollChild)
 ScrollFrame:UpdateScrollChildRect()
 ScrollChild:SetWidth(295)
+
+-- ============================================================
+-- Автоматическая прокрутка списка шагов
+-- ============================================================
+
+local function ScrollToCurrentStep()
+
+    if not ScrollFrame or not ScrollBar then
+        return
+    end
+
+    if not addon.currentGuide then
+        return
+    end
+
+    local current = RXPCData.currentStep or 1
+
+    local rowHeight = 22          -- высота одной строки списка
+    local visibleRows = 8         -- сколько строк видно одновременно
+
+    local offset = current - 1
+
+    if offset > (#addon.currentGuide.steps - visibleRows) then
+        offset = math.max(0, #addon.currentGuide.steps - visibleRows)
+    end
+
+    local scroll = offset * rowHeight
+
+    ScrollBar:SetValue(scroll)
+    ScrollFrame:SetVerticalScroll(scroll)
+
+end
 
 -- ============================================================
 -- GUIDE NAME & FOOTER TEXT
@@ -812,7 +969,8 @@ function addon.SetStep(n, n2, loopback)
         end
     end
 
-     local step = guide.steps[n]
+    local step = guide.steps[n]
+
     local req = step.requires and guide.labels and guide.labels[step.requires] and guide.steps[guide.labels[step.requires]]
 
     -- ФОРСИРОВАННЫЙ РЕЖИМ: при возврате к шагу (например, после отмены квеста)
@@ -847,6 +1005,7 @@ function addon.SetStep(n, n2, loopback)
     if #activeSteps == 0 then
         if n >= #guide.steps then
             if addon.functions and addon.functions.next then
+                print("RETURN")
                 return addon.functions.next()
             else
                 return
@@ -905,8 +1064,40 @@ function addon.SetStep(n, n2, loopback)
         end
 
         stepframe:SetBackdrop(RXPFrame.backdrop.edge)
-        stepframe:SetBackdropColor(unpack(addon.colors.background))
-        stepframe:SetBackdropBorderColor(unpack(addon.colors.border))
+
+        print(
+            "STEP",
+            step.index,
+            "active=", tostring(step.active),
+            "skip=", tostring(RXPCData.stepSkip[step.index]),
+            "elements=", #(step.elements or {})
+        )
+
+        local complete = true
+
+        for _, el in ipairs(step.elements or {}) do
+
+            print(
+                "  ",
+                tostring(el.tag),
+                "completed=", tostring(el.completed),
+                "optional=", tostring(el.optional),
+                "text=", tostring(el.text)
+            )
+
+            if not el.optional and not el.completed and not el.textOnly then
+                complete = false
+                break
+            end
+        end
+
+        if complete then
+            stepframe:SetBackdropColor(0.10, 0.40, 0.10, 0.45)
+            stepframe:SetBackdropBorderColor(0.20, 0.80, 0.20, 1)
+        else
+            stepframe:SetBackdropColor(unpack(addon.colors.background))
+            stepframe:SetBackdropBorderColor(unpack(addon.colors.border))
+        end
 
         stepframe.number:SetBackdrop(RXPFrame.backdrop.edge)
         stepframe.number:SetBackdropColor(unpack(addon.colors.background))
@@ -1062,16 +1253,17 @@ function addon.SetStep(n, n2, loopback)
     addon.UpdateItemFrame()
     CurrentStepFrame.UpdateText()
     addon.updateSteps = true
+    if addon.UpdateTaskWaypoint then addon.UpdateTaskWaypoint() end
     addon.UpdateMap()
-    BottomFrame:StepScroll(scrollHeight)
     addon.updateBottomFrame = true
 
-    -- Обновляем высоту окна под 3 видимых шага
+    if BottomFrame and BottomFrame.UpdateFrame then
+        BottomFrame.UpdateFrame()
+    end
+    
     addon.UpdateWindowHeight()
-
-    -- НОВОЕ: обновляем строку с актуальной задачей
     addon.UpdateCurrentTask()
- print("|cff33ff99RXP|r: SetStep finished, currentStep=" .. tostring(RXPCData.currentStep) .. " activeSteps=" .. tostring(#activeSteps))
+ -- print("|cff33ff99RXP|r: SetStep finished, currentStep=" .. tostring(RXPCData.currentStep) .. " activeSteps=" .. tostring(#activeSteps))
 end
 
 -- ============================================================
@@ -1081,6 +1273,7 @@ end
 CurrentStepFrame.framePool = {}
 
 function CurrentStepFrame.UpdateText()
+    print("RXP: UpdateText")
     addon.updateStepText = false
     local guide = addon.currentGuide
     if not guide then return end
@@ -1144,7 +1337,8 @@ function CurrentStepFrame.UpdateText()
                             -- Формат: >>Текст (без тега)
                             rawText = rawText:gsub("^>>%s*", "")
                             -- Убираем цветовые теги |c...|r
-                            rawText = rawText:gsub("|c[^|]+", ""):gsub("|r", "")
+                            rawText = rawText:gsub("|c%x%x%x%x%x%x%x%x", "")
+                            rawText = rawText:gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
                             -- Убираем target теги
                             rawText = rawText:gsub("%.target%s+.+$", "")
                             -- Убираем лишние пробелы
@@ -1211,8 +1405,12 @@ function CurrentStepFrame.UpdateText()
                         elementFrame:SetPoint("TOPRIGHT", stepframe.elements[e - 1], "BOTTOMRIGHT", 0, 0 + spacing)
                     end
 
-                    if element.tag and element.text then
+                    -- Guide text can supply its own |T...|t icon.  In that case
+                    -- the tag icon would be rendered a second time beside it.
+                    if element.tag and element.text and
+                        not (type(element.text) == "string" and element.text:find("|T", 1, true)) then
                         icon = element.icon or addon.icons[element.tag] or ""
+                        print("RXP ICON:", element.tag, icon, element.text)
                         elementFrame.icon:SetText(icon)
                         elementFrame.icon:Show()
                     else
@@ -1257,24 +1455,32 @@ end
 
 function addon.UpdateWindowHeight()
     if not addon.currentGuide then return end
-    local visibleStepsHeight = 0
-    local stepsCounted = 0
-    local currentStepIdx = RXPCData.currentStep or 1
-    local nsteps = #addon.currentGuide.steps
+    local contentHeight = 0
+    local visibleSteps = 0
+    local currentStep = RXPCData.currentStep or 1
+    local maxVisibleSteps = 3
 
-    for s = currentStepIdx, nsteps do
-        local step = addon.currentGuide.steps[s]
-        if step and IsFrameShown(nil, step) then
-            local frame = ScrollChild.framePool[s]
-            if frame and frame:GetHeight() > 0.5 then
-                visibleStepsHeight = visibleStepsHeight + frame:GetHeight() + 5
-                stepsCounted = stepsCounted + 1
-                if stepsCounted >= 3 then break end
+    -- The list viewport is sized from the actual rendered rows, rather than a
+    -- fixed height.  This keeps the current step and the next two visible even
+    -- when one of them wraps onto several lines.
+    for index = currentStep, #addon.currentGuide.steps do
+        local step = addon.currentGuide.steps[index]
+        local frame = ScrollChild.framePool[index]
+        if step and frame and IsFrameShown(frame, step) then
+            local rowHeight = frame:GetHeight() or 0
+            if rowHeight > 0.5 then
+                if visibleSteps > 0 then
+                    contentHeight = contentHeight + 1 -- gap between rows
+                end
+                contentHeight = contentHeight + rowHeight
+                visibleSteps = visibleSteps + 1
+                if visibleSteps == maxVisibleSteps then break end
             end
         end
     end
 
-    local newHeight = 35 + visibleStepsHeight + 22 + 20
+    local chromeHeight = GuideName:GetHeight() + Footer:GetHeight() + 28
+    local newHeight = chromeHeight + contentHeight
     newHeight = math.max(newHeight, 140)
     RXPFrame:SetWidth(320)
     RXPFrame:SetHeight(newHeight)
@@ -1287,20 +1493,160 @@ end
 
 local stepPos = {}
 local lastScrollValue
+local lastBottomFrameStep
 
 function BottomFrame:StepScroll(n)
+
     local step = addon.currentGuide and addon.currentGuide.steps[n]
-    if not step or not IsFrameShown(nil, step) then return end
+    if not step or not IsFrameShown(nil, step) then
+        return
+    end
 
     local value = 0
+
     if stepPos[n] and stepPos[0] then
+
         value = stepPos[n] - 2
-        if value < 0 then value = 0 end
-        local smax = stepPos[0] - BottomFrame:GetHeight() + 10
-        if value > smax then value = smax end
+
+        if value < 0 then
+            value = 0
+        end
+
+        local smax = math.max(0, stepPos[0] - BottomFrame:GetHeight() + 10)
+
+        if value > smax then
+            value = smax
+        end
     end
-    if ScrollFrame.ScrollBar then ScrollFrame.ScrollBar:SetValue(value) end
+
+    BottomFrame:SmoothScroll(value)
+
     lastScrollValue = math.floor(value + 0.5)
+
+end
+
+-- ============================================================
+-- Smooth scroll animator
+-- ============================================================
+
+local ScrollAnimator = CreateFrame("Frame")
+ScrollAnimator:Hide()
+
+ScrollAnimator.startValue = 0
+ScrollAnimator.targetValue = 0
+ScrollAnimator.duration = 0.18
+ScrollAnimator.elapsed = 0
+
+function ScrollAnimator:Start(target)
+
+    if not ScrollFrame.ScrollBar then
+        ScrollFrame:SetVerticalScroll(target)
+        return
+    end
+
+    self.startValue = ScrollFrame.ScrollBar:GetValue()
+    self.targetValue = target
+    self.elapsed = 0
+
+    local dist = math.abs(self.targetValue - self.startValue)
+
+    self.duration = math.max(0.08, math.min(0.30, dist / 500))
+
+    self:Show()
+
+end
+
+ScrollAnimator:SetScript("OnUpdate", function(self, elapsed)
+
+    self.elapsed = self.elapsed + elapsed
+
+    local t = self.elapsed / self.duration
+
+    if t >= 1 then
+        ScrollFrame.ScrollBar:SetValue(self.targetValue)
+        self:Hide()
+        return
+    end
+
+    -- Ease Out Cubic
+    t = 1 - (1 - t)^3
+
+    local value =
+        self.startValue +
+        (self.targetValue - self.startValue) * t
+
+    ScrollFrame.ScrollBar:SetValue(value)
+
+end)
+
+function BottomFrame:SmoothScroll(target)
+
+    AnimationManager:ScrollTo(target)
+
+end
+
+--------------------------------------------------------
+-- Обновление одной строки BottomFrame
+--------------------------------------------------------
+
+local function UpdateBottomRow(frame, step)
+
+    if not frame or not step then
+        return
+    end
+
+    print(
+    "ROW",
+    step.index,
+    "completed=", tostring(step.completed),
+    "active=", tostring(step.active),
+    "current=", RXPCData.currentStep
+)
+
+    local complete = (step.index < RXPCData.currentStep)
+
+    if RXPCData.stepSkip and RXPCData.stepSkip[step.index] then
+        complete = true
+    end
+
+    ----------------------------------------------------
+    -- Чекбокс
+    ----------------------------------------------------
+
+    if frame.checkbox then
+        frame.checkbox:SetChecked(complete)
+    end
+
+    ----------------------------------------------------
+    -- Фон
+    ----------------------------------------------------
+
+    if complete then
+
+        frame:SetBackdropColor(0.12,0.40,0.12,0.45)
+        frame:SetBackdropBorderColor(0.20,0.75,0.20,1)
+
+    else
+
+        frame:SetBackdropColor(unpack(addon.colors.background))
+        frame:SetBackdropBorderColor(unpack(addon.colors.border))
+
+    end
+
+    ----------------------------------------------------
+    -- Цвет номера
+    ----------------------------------------------------
+
+    if frame.number then
+
+        if complete then
+            frame.number:SetTextColor(0.55,1.00,0.55)
+        else
+            frame.number:SetTextColor(0.70,0.70,0.75)
+        end
+
+    end
+
 end
 
 function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
@@ -1360,7 +1706,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     end
                     -- Добавляем иконку элемента (если еще не в тексте)
                     local icon = element.icon or addon.icons[element.tag] or ""
-                    if icon ~= "" and not rawtext:find("^|T") then
+                    if icon ~= "" and not rawtext:find("|T", 1, true) then
                         rawtext = icon .. " " .. rawtext
                     end
                     if not text then text = " " .. rawtext
@@ -1383,9 +1729,18 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
 
         if frame.text then
             frame.text:SetText(text)
-            local textWidth = math.max(50, frame:GetWidth() - 38)
+            -- A frame can temporarily report zero width while the scroll child is
+            -- being relaid out.  Keep the normal list width in that case instead
+            -- of forcing the text into a 50-pixel column.
+            local textWidth = math.max(251, (frame:GetWidth() or 0) - 38)
             frame.text:SetWidth(textWidth)
         end
+
+        --------------------------------------------------------
+        -- Обновление чекбокса
+        --------------------------------------------------------
+
+        UpdateBottomRow(frame, step)
 
         if hideStep then
             frame.text:Hide()
@@ -1426,13 +1781,54 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
             if not frame then
                 ScrollChild.framePool[n] = CreateFrame("Frame", "$parent_frame" .. n, ScrollChild)
                 frame = ScrollChild.framePool[n]
+                frame:SetBackdrop(RXPFrame.backdrop.edge)
+                frame:SetBackdropBorderColor(unpack(addon.colors.border))
+
+                --------------------------------------------------------
+                -- Цветной фон строки
+                --------------------------------------------------------
+
+                frame.bg = frame:CreateTexture(nil, "BACKGROUND")
+                frame.bg:SetAllPoints()
+                frame.bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+                frame.bg:SetVertexColor(0,0,0,0)
 
                 frame.icon = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 frame.icon:SetFont(addon.font, 14, "")
                 frame.icon:SetPoint("LEFT", frame, "LEFT", 6, 0)
 
+                --------------------------------------------------------
+                -- CheckBox
+                --------------------------------------------------------
+
+                frame.checkbox = CreateFrame(
+                    "CheckButton",
+                    nil,
+                    frame,
+                    "UICheckButtonTemplate"
+                )
+
+                frame.checkbox:SetSize(18,18)
+                frame.checkbox:SetPoint("LEFT", frame.icon, "RIGHT", 0, 0)
+                frame.checkbox:SetHitRectInsets(0,0,0,0)
+
+                frame.checkbox.frame = frame
+
+                frame.checkbox:SetScript("OnClick", function(self)
+
+                    local frame = self.frame
+                    local step = frame.step
+
+                    if not step then
+                        return
+                    end
+
+                    print("Step", step.index)
+
+                end)
+
                 frame.number = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-                frame.number:SetPoint("LEFT", frame.icon, "RIGHT", 6, 0)
+                frame.number:SetPoint("LEFT", frame.checkbox, "RIGHT", 2, 0)
                 frame.number:SetTextColor(0.7, 0.7, 0.75)
                 frame.number:SetFont(addon.font, 11, "")
                 frame.number:SetWidth(18)
@@ -1450,11 +1846,13 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 frame.text:SetNonSpaceWrap(true)
 
                 frame.highlight = frame:CreateTexture(nil, "HIGHLIGHT")
+                frame.highlight:SetDrawLayer("ARTWORK", 7)
                 frame.highlight:SetAllPoints()
                 frame.highlight:SetTexture("Interface\QuestFrame\UI-QuestTitleHighlight")
                 frame.highlight:SetBlendMode("ADD")
                 frame.highlight:SetAlpha(0.4)
                 frame.highlight:Hide()
+                frame.highlight:SetDrawLayer("ARTWORK", 7)
 
                 frame:SetScript("OnEnter", function(self) self.highlight:Show() end)
                 frame:SetScript("OnLeave", function(self) self.highlight:Hide() end)
@@ -1465,6 +1863,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 frame.index = n
 
                 local text
+
                 for _, element in ipairs(step.elements or {}) do
                     local rawtext
 
@@ -1491,7 +1890,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                         if displayText and displayText ~= "" then
                             -- Добавляем иконку элемента (если еще не в тексте)
                             local icon = element.icon or addon.icons[element.tag] or ""
-                            if icon ~= "" and not displayText:find("^|T") then
+                            if icon ~= "" and not displayText:find("|T", 1, true) then
                                 displayText = icon .. " " .. displayText
                             end
                             rawtext = displayText
@@ -1539,7 +1938,9 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     frame:SetPoint("TOPRIGHT", ScrollChild, -6, 0)
                 else
                     frame:SetPoint("TOPLEFT", ScrollChild.framePool[n - 1], "BOTTOMLEFT", 0, -1)
-                    frame:SetPoint("TOPRIGHT", ScrollChild.framePool[n - 1], "BOTTOMRIGHT", -6, -1)
+                    -- The previous frame already has the scrollbar margin.  Applying
+                    -- -6 again here made every following row six pixels narrower.
+                    frame:SetPoint("TOPRIGHT", ScrollChild.framePool[n - 1], "BOTTOMRIGHT", 0, -1)
                 end
 
                 frame:SetHeight(fheight)
@@ -1577,13 +1978,45 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
             local frameTop = ScrollChild.framePool[n]:GetTop()
             local childTop = ScrollChild:GetTop()
             if frameTop and childTop then
-                stepPos[n] = frameTop - childTop
+                stepPos[n] = childTop - frameTop
             else
                 stepPos[n] = (n - 1) * 28
             end
         end
     end
-    addon.UpdateWindowHeight()
+        addon.UpdateWindowHeight()
+
+        if lastBottomFrameStep and RXPCData.currentStep ~= lastBottomFrameStep then
+
+           ScrollDelayFrame:Show()
+
+           ScrollDelayFrame:SetScript("OnUpdate", function(self)
+
+              self:SetScript("OnUpdate", nil)
+               self:Hide()
+
+               BottomFrame:StepScroll(RXPCData.currentStep)
+
+           end)
+
+        end
+
+        --------------------------------------------------------
+-- Синхронизация строк BottomFrame
+--------------------------------------------------------
+
+for i = 1, #ScrollChild.framePool do
+
+    local frame = ScrollChild.framePool[i]
+
+    if frame and frame.step then
+        UpdateBottomRow(frame, frame.step)
+    end
+
+end
+
+    lastBottomFrameStep = RXPCData.currentStep
+
 end
 
 function addon:LoadGuide(guide, isLoading)
@@ -1627,29 +2060,6 @@ function addon:LoadGuide(guide, isLoading)
 
  RXPCData.currentStep = RXPCData.currentStep or 1
 
-    -- Если currentStep вне диапазона или шаг уже выполнен — сбрасываем на 1
-    if RXPCData.currentStep > #guide.steps then
-        RXPCData.currentStep = 1
-    elseif guide.steps[RXPCData.currentStep] and guide.steps[RXPCData.currentStep].completed then
-        RXPCData.currentStep = 1
-    end
-
-    -- Если currentStep > 1, но предыдущие шаги не выполнены — сбрасываем на 1
-    -- (защита от сохранённого currentStep от другого персонажа/сессии)
-    if RXPCData.currentStep > 1 then
-        local allPreviousCompleted = true
-        for i = 1, RXPCData.currentStep - 1 do
-            if guide.steps[i] and guide.steps[i].completed ~= true then
-                allPreviousCompleted = false
-                break
-            end
-        end
-        if not allPreviousCompleted then
-            RXPCData.currentStep = 1
-            RXPCData.stepSkip = {} -- сбрасываем пропуски
-        end
-    end
-
     if RXPCData.currentStep > #guide.steps then
         RXPCData.currentStep = #guide.steps
     end
@@ -1667,12 +2077,12 @@ function addon:LoadGuide(guide, isLoading)
         end
     end
 
-    BottomFrame:Show()
-    addon.updateBottomFrame = true
-    BottomFrame.UpdateFrame()
+        BottomFrame:Show()
+        addon.updateBottomFrame = true
+        BottomFrame.UpdateFrame()
 
-    -- Обновляем подзаголовок с текущей задачей
-    addon.UpdateCurrentTask()
+        -- Обновляем подзаголовок с текущей задачей
+        addon.UpdateCurrentTask()
 
     if not isLoading then
         addon:SendEvent("RXP_GUIDE_LOADED", guide)
@@ -1706,7 +2116,11 @@ function RXPFrame.GenerateMenuTable()
         menuList = {}
     })
 
-    for group, guides in pairs(addon.guideList) do
+if not addon.guideList then
+    return
+end
+
+for group, guides in pairs(addon.guideList) do
         local groupMenu = {}
         for _, name in ipairs(guides.names_ or {}) do
             local key = guides[name]
@@ -1835,4 +2249,14 @@ ScrollFrame:SetScript("OnScrollRangeChanged", function(self, xrange, yrange)
         scrollBar:SetMinMaxValues(0, 0)
         scrollBar:SetValue(0)
     end
+end)
+
+ScrollFrame:SetScript("OnVerticalScroll", function(self, offset)
+
+    self:SetVerticalScroll(offset)
+
+    if self.ScrollBar then
+        self.ScrollBar:SetValue(offset)
+    end
+
 end)
