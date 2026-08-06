@@ -32,6 +32,7 @@ addon.icons = {
 
     -- NPC interactions
     ["train"] = "|TInterface\\MINIMAP\\TRACKING\\Profession:0|t",
+    ["trainer"] = "|TInterface\\MINIMAP\\TRACKING\\Profession:0|t",
     ["vendor"] = "|TInterface\\MINIMAP\\TRACKING\\Reagents:0|t",
     ["repair"] = "|TInterface\\MINIMAP\\TRACKING\\Reagents:0|t",
     ["bank"] = "|TInterface\\MINIMAP\\TRACKING\\Banker:0|t",
@@ -113,6 +114,7 @@ addon.functions.events = {
     ["talent"] = "CHARACTER_POINTS_CHANGED",
     ["home"] = "HEARTHSTONE_BOUND",
     ["train"] = "TRAINER_SHOW",
+    ["trainer"] = "TRAINER_SHOW",
     ["vendor"] = {"MERCHANT_SHOW", "MERCHANT_CLOSED"},
     ["repair"] = {"MERCHANT_SHOW", "MERCHANT_CLOSED"},
     ["die"] = {"PLAYER_DEAD", "PLAYER_UNGHOST"},
