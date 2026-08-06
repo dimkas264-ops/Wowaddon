@@ -48,4 +48,5 @@ GuideLoaderFile.lua
 
 # === GUIDES ===
 Guides\Alliance\WotLK-Draenei-1-12-Azuremyst.lua
+Guides\Horde\Wotlk_Undead_1-6.lua
 
