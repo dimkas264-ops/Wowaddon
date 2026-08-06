@@ -1,4 +1,5 @@
 local addonName, addon = ...
+local fmt = string.format
 
 -- ============================================================
 -- 3.3.5 MAP & NAVIGATION COMPATIBILITY
@@ -265,6 +266,8 @@ function addon.SetupArrow()
 
     local frame = CreateFrame("Frame", "RXPGuidesArrow", UIParent)
     frame:SetSize(32, 32)
+    frame:SetFrameStrata("HIGH")
+    frame:SetFrameLevel(100)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, -100)
     frame:EnableMouse(true)
     frame:SetMovable(true)
@@ -274,8 +277,7 @@ function addon.SetupArrow()
 
     -- Текстура стрелки
     local arrow = frame:CreateTexture(nil, "OVERLAY")
-    arrow:SetTexture("Interface/AddOns/" .. addonName .. "/Textures/arrow")
-    arrow:SetAllPoints()
+arrow:SetTexture("Interface\\AddOns\\" .. addonName .. "\\Textures\\rxp_navigation_arrow-1")    arrow:SetAllPoints()
     arrow:SetTexCoord(0, 1, 0, 1)
     frame.arrow = arrow
 
@@ -292,6 +294,16 @@ function addon.SetupArrow()
     frame.title = title
 
     addon.arrowFrame = frame
+    frame.elapsed = 0
+
+frame:SetScript("OnUpdate", function(self, elapsed)
+    self.elapsed = self.elapsed + elapsed
+
+    if self.elapsed >= 0.05 then
+        self.elapsed = 0
+        addon.UpdateArrow()
+    end
+end)
     frame:Hide()
 end
 
@@ -319,13 +331,17 @@ function addon.UpdateArrow()
         return
     end
 
+    if not waypoint.x or not waypoint.y then
+    frame:Hide()
+    return
+    end
     local wx, wy = waypoint.x / 100, waypoint.y / 100
     local dx = wx - px
     local dy = wy - py
     local distance = math.sqrt(dx * dx + dy * dy)
 
     -- Конвертируем расстояние в ярды (приблизительно)
-    local yards = distance * 1000
+    local yards = math.floor(distance * 914)
 
     -- Угол к цели
     local angle = math.atan2(dy, dx)
@@ -380,6 +396,72 @@ function addon.ClearWaypoints()
     addon.updateMap = true
 end
 
+local function GetWaypointTitle(element)
+    local text = type(element.text) == "string" and element.text or ""
+    text = text:gsub("|T[^|]+|t", "")
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
+    text = text:gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    return text ~= "" and text or "Current task"
+end
+
+function addon.UpdateTaskWaypoint()
+
+    table.wipe(addon.activeWaypoints)
+
+    local guide = addon.currentGuide
+    if not guide or not guide.steps then
+        addon.updateMap = true
+        return
+    end
+
+    local startIndex = (RXPCData and RXPCData.currentStep) or 1
+
+    for i = startIndex, #guide.steps do
+
+        local step = guide.steps[i]
+
+        if step then
+
+            for _, element in ipairs(step.elements or {}) do
+
+                if (element.tag == "goto" or element.tag == "waypoint")
+                and not element.completed
+                and element.x
+                and element.y then
+
+                    addon.activeWaypoints[1] = {
+
+                        x = tonumber(element.x),
+
+                        y = tonumber(element.y),
+
+                        zone = element.zone,
+
+                        radius = (tonumber(element.radius) or 5) / 1000,
+
+                        element = element,
+
+                        title = GetWaypointTitle(element),
+
+                    }
+
+                    addon.updateMap = true
+
+                    return
+
+                end
+
+            end
+
+        end
+
+    end
+
+    addon.updateMap = true
+
+end
+
 function addon.CompleteWaypoint(waypoint)
     if not waypoint then return end
     addon.RemoveWaypoint(waypoint)
@@ -387,6 +469,7 @@ function addon.CompleteWaypoint(waypoint)
         waypoint.element.completed = true
         addon.updateSteps = true
     end
+    if addon.UpdateTaskWaypoint then addon.UpdateTaskWaypoint() end
     if waypoint.onComplete then
         waypoint.onComplete()
     end
