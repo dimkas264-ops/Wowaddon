@@ -872,6 +872,7 @@ local function parseLine(linetext, step, parsingLogic)
     end
 
     local line = linetext
+    print("LINE:", linetext)
     local classtag
     line = line:gsub("%s*<<%s*(.+)", function(t)
         classtag = t
@@ -901,19 +902,19 @@ local function parseLine(linetext, step, parsingLogic)
     end)
 
     line:gsub("^%.(%S+)%s*(.*)", function(tag, args)
-        local t = {}
+    local t = {}
 
-        if addon.separators[tag] then
-            addon.separators[tag](t, args)
-        else
-            args = args:gsub("%s*,%s*", ",")
-            for arg in string.gmatch(args, "[^,]+") do
-                tinsert(t, arg)
-            end
-        end
-
-if parsingLogic[tag] then
+if addon.separators[tag] then
+    addon.separators[tag](t, args)
+else
+    args = args:gsub("%s*,%s*", ",")
+    for arg in string.gmatch(args, "[^,]+") do
+        tinsert(t, arg)
+    end
+end
+    if parsingLogic[tag] then
             local result = parsingLogic[tag](linetext, text, unpack(t))
+            print("PARSE FUNC:", tag, result, type(result))
             if not result then return end
             -- FIX: Если результат строка, оборачиваем в таблицу
             if type(result) == "string" then
@@ -923,6 +924,27 @@ if parsingLogic[tag] then
                 element.tag = tag
                 element.step = step
             end
+            -- FIX: .trainer без аргументов
+            if element.tag == "trainer"
+                and not element.spellId
+                and not element.skill
+                and element.text then
+
+                    local spell = element.text
+
+                    -- Русский клиент
+                spell = spell:gsub("^Выучить:%s*", "")
+
+                    -- Английский клиент
+                spell = spell:gsub("^Learn:%s*", "")
+
+                    -- Убираем пробелы
+                spell = spell:gsub("^%s+", "")
+                spell = spell:gsub("%s+$", "")
+
+                element.skill = spell
+            end
+            
             if element.parent then
                 element.parent = addon.lastObjective
             end
@@ -972,12 +994,14 @@ if parsingLogic[tag] then
     -- Очистка RXP тегов из текста элемента
     if element then
         if element.text and type(element.text) == "string" then
-            element.text = element.text:gsub("|c[^|]+", ""):gsub("|r", "")
+            element.text = element.text:gsub("|c%x%x%x%x%x%x%x%x", "")
+                :gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
             element.text = element.text:gsub("%.target%s+.+$", "")
             element.text = element.text:gsub("^%s+", ""):gsub("%s+$", "")
         end
         if element.tooltipText and type(element.tooltipText) == "string" then
-            element.tooltipText = element.tooltipText:gsub("|c[^|]+", ""):gsub("|r", "")
+            element.tooltipText = element.tooltipText:gsub("|c%x%x%x%x%x%x%x%x", "")
+                :gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
             element.tooltipText = element.tooltipText:gsub("|T[^|]+|t", "")
             element.tooltipText = element.tooltipText:gsub("%.target%s+.+$", "")
             element.tooltipText = element.tooltipText:gsub("^%s+", ""):gsub("%s+$", "")
