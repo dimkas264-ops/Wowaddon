@@ -365,17 +365,45 @@ addon.functions.train = function(self, text, ...)
         end
     end
 
-    if element.skill then
-        local level = addon.GetSkillLevel(element.skill)
-        if level >= (element.requiredLevel or 1) then
-            element.completed = true
-            addon.updateSteps = true
-            return true
+if element.skill then
+
+    -- сначала проверяем как профессию
+    local level = addon.GetSkillLevel(element.skill)
+
+    if level and level >= (element.requiredLevel or 1) then
+        element.completed = true
+        addon.updateSteps = true
+        return true
+    end
+
+    -- затем проверяем как название изученного заклинания
+    local i = 1
+
+    while true do
+
+        local spellName = GetSpellBookItemName(i, BOOKTYPE_SPELL)
+
+        if not spellName then
+            break
         end
+
+            local spellLower = string.lower(spellName)
+            local needLower = string.lower(element.skill)
+
+            if spellLower == needLower then
+                element.completed = true
+                addon.updateSteps = true
+                return true
+            end
+
+            i = i + 1
+        end
+
     end
 end
 
 addon.functions.learn = addon.functions.train
+addon.functions.trainer = addon.functions.train
 
 -- ============================================================
 -- VENDOR / BUY / SELL
