@@ -950,11 +950,17 @@ function addon:PLAYER_LEAVING_WORLD() addon.isHidden = true end
 function addon:PLAYER_LOGOUT() addon.settings:SaveFramePositions() end
 function addon:CALENDAR_UPDATE_EVENT_LIST() addon.calendarLoaded = true end
 
-addon.explorationText = _G.ERR_ZONE_EXPLORED and _G.ERR_ZONE_EXPLORED:gsub("1%$", ""):gsub("2%$", ""):gsub("%%s", "(.+)"):gsub("%%d", "(%%d+)") or "Discovered .+"
 function addon:UI_INFO_MESSAGE(_, arg1, arg2)
-    if not arg1 or arg1 ~= 408 then return end
+    if arg1 ~= 408 then
+        return
+    end
+
     local subzoneExplored = arg2 and arg2:match(addon.explorationText)
-    if subzoneExplored then print("Explored:", subzoneExplored) end
+
+    if subzoneExplored then
+        RXPCData.exploredZones = RXPCData.exploredZones or {}
+        RXPCData.exploredZones[subzoneExplored] = true
+    end
 end
 
 function addon:GET_ITEM_INFO_RECEIVED(_, itemNumber, success)
@@ -1093,6 +1099,201 @@ local event = ""
 local updateStepIndex = 0
 local busy = 0
 
+local function ProcessActiveQuestUpdates()
+    local activeQuestUpdate = 0
+
+    if addon.loadNextStep then
+        return activeQuestUpdate
+    end
+
+    for ref, func in pairs(addon.updateActiveQuest) do
+        addon.Call("updateQuest", func, ref)
+        activeQuestUpdate = activeQuestUpdate + 1
+        addon.updateActiveQuest[ref] = nil
+    end
+
+    if activeQuestUpdate > 0 then
+        event = event .. "/activeQ"
+    end
+
+    return activeQuestUpdate
+end
+
+local function ProcessStepTransition()
+    if addon.nextStep then
+        skip = 1
+        addon.SetStep(addon.nextStep)
+        addon.questAutoAccept = true
+        addon.updateBottomFrame = true
+        addon.nextStep = false
+        return true
+    end
+
+    if addon.loadNextStep then
+        event = event .. "/loadNext"
+        addon.loadNextStep = false
+        addon.SetStep(RXPCData.currentStep + 1)
+        addon.questAutoAccept = true
+        addon.updateBottomFrame = true
+        skip = 1
+        return true
+    end
+
+    return false
+end
+
+local function ProcessStepUpdates(cycle2, activeQuestUpdate, start, framerate)
+    local guideLoaded
+
+    if activeQuestUpdate ~= 0 then
+        return guideLoaded
+    end
+
+    if addon.updateSteps then
+        event = event .. "/stepComplete"
+        addon.UpdateStepCompletion()
+
+    elseif addon.updateStepText and addon.currentGuide and cycle2 == 0 then
+        event = event .. "/textsingle"
+        addon.updateStepText = false
+
+        local updateText
+        local steps = addon.currentGuide.steps
+        local update = {}
+
+        for n in pairs(addon.stepUpdateList or {}) do
+            tinsert(update, n)
+        end
+
+        for _, n in pairs(update) do
+            if steps[n] then
+                if not updateText and steps[n].active then
+                    updateText = true
+                end
+
+                addon.RXPFrame.BottomFrame.UpdateFrame(nil, n)
+
+                if not addon.updateStepText then
+                    addon.stepUpdateList[n] = nil
+                end
+            end
+        end
+
+        if updateText or addon.updateTipWindow then
+            addon.updateTipWindow = false
+            addon.RXPFrame.CurrentStepFrame.UpdateText()
+        end
+
+    elseif addon.updateBottomFrame then
+        event = event .. "/bottomFrame"
+        errorCount = 0
+        addon.RXPFrame.BottomFrame.UpdateFrame()
+        addon.RXPFrame.SetStepFrameAnchor()
+        updateError = false
+        skip = 1
+        return "bottomFrame"
+
+    elseif cycle2 == 1 and next(addon.guideCache) then
+        event = event .. "/cache"
+
+        local loadGuide = true
+
+        for _, guide in pairs(addon.guides) do
+            if (loadGuide or guide.disablecaching) and not guide.steps then
+                if addon.player.hardcore then
+                    LoadCache(guide)
+                    loadGuide = false
+                else
+                    addon:FetchGuide(guide)
+                    guideLoaded = true
+
+                    local elapsed = debugprofilestop() - start
+
+                    if elapsed > 20 or framerate < 50 then
+                        loadGuide = false
+                    end
+                end
+            end
+        end
+
+        if not next(addon.guideCache) and RXPCData.guideMetaData.enabledDungeons then
+            RXPCData.guideMetaData.enabledDungeons[addon.player.faction] =
+                addon.dungeons or RXPCData.guideMetaData.enabledDungeons[addon.player.faction]
+        end
+    end
+
+    return guideLoaded
+end
+
+local function ProcessIncrementalStepUpdates(guideLoaded)
+    local cycle4 = skip % 4
+    local cycle16 = skip % 16
+    local cycle32 = skip % 32
+
+    if cycle4 == 0 then
+        addon.tickers.CycleZero()
+        return
+    elseif cycle4 == 2 then
+        addon.tickers.CycleThree()
+        return
+    elseif cycle4 == 3 then
+        addon.tickers.CycleFour()
+        return
+    elseif cycle16 == 1 then
+        addon.tickers.CycleSixteen()
+        return
+    elseif cycle32 == 29 then
+        addon.tickers.CycleThirty()
+        return
+    end
+
+    if skip == 1 or guideLoaded or not addon.currentGuide then
+        return
+    end
+
+    event = event .. "/istep"
+
+    local max = #addon.currentGuide.steps
+
+    if stepCounter == RXPCData.currentStep then
+        stepCounter = stepCounter + 4
+    end
+
+    local batchMax = 10
+
+    if (addon.settings.profile.updateFrequency or 0) > 75 then
+        batchMax = 2
+    end
+
+    if updateStepIndex < 5 then
+        addon.RXPFrame.BottomFrame.UpdateFrame(nil, RXPCData.currentStep + updateStepIndex)
+    end
+
+    stepCounter = stepCounter + batchSize
+
+    for n = stepCounter, math.min(stepCounter + batchSize, max) do
+        addon.RXPFrame.BottomFrame.UpdateFrame(nil, n)
+    end
+
+    updateStepIndex = (updateStepIndex + 1) % 8
+
+    if stepCounter > max then
+        stepCounter = 1
+
+        local time = GetTime()
+        local tdiff = time - updateTimer
+
+        if tdiff > 10 then
+            batchSize = math.min(batchSize + math.ceil(tdiff / 8), batchMax)
+        elseif batchSize > 2 then
+            batchSize = batchSize - 1
+        end
+
+        updateTimer = time
+        skip = skip % 4096
+    end
+end
+
 function addon.LegacyUpdateLoop()
     if updateError then errorCount = errorCount + 1 end
     local framerate = GetFramerate()
@@ -1106,133 +1307,25 @@ function addon.LegacyUpdateLoop()
     skipframe = true
     updateError = true
     local guideLoaded
-    local activeQuestUpdate = 0
+    local activeQuestUpdate
     skip = skip + 1
     local cycle2 = skip % 2
     event = ""
     local start = debugprofilestop()
 
-    if not addon.loadNextStep then
-        for ref, func in pairs(addon.updateActiveQuest) do
-            addon.Call("updateQuest", func, ref)
-            activeQuestUpdate = activeQuestUpdate + 1
-            addon.updateActiveQuest[ref] = nil
-        end
-        if activeQuestUpdate > 0 then event = event .. "/activeQ" end
+    activeQuestUpdate = ProcessActiveQuestUpdates()
+
+if not ProcessStepTransition() then
+    local result = ProcessStepUpdates(cycle2, activeQuestUpdate, start, framerate)
+
+    if result == "bottomFrame" then
+        return "bottomFrame"
     end
 
-    if addon.nextStep then
-        skip = 1
-        addon.SetStep(addon.nextStep)
-        addon.questAutoAccept = true
-        addon.updateBottomFrame = true
-        addon.nextStep = false
-    elseif addon.loadNextStep then
-        event = event .. "/loadNext"
-        addon.loadNextStep = false
-        addon.SetStep(RXPCData.currentStep + 1)
-        addon.questAutoAccept = true
-        skip = 1
-        addon.updateBottomFrame = true
-    elseif activeQuestUpdate == 0 then
-        if addon.updateSteps then
-            event = event .. "/stepComplete"
-            addon.UpdateStepCompletion()
-        elseif addon.updateStepText and addon.currentGuide and cycle2 == 0 then
-            event = event .. "/textsingle"
-            addon.updateStepText = false
-            local updateText
-            local steps = addon.currentGuide.steps
-            local update = {}
-for n in pairs(addon.stepUpdateList or {}) do tinsert(update, n) end
-            for _, n in pairs(update) do
-                if steps[n] then
-                    if not updateText and steps[n].active then updateText = true end
-                    addon.RXPFrame.BottomFrame.UpdateFrame(nil, n)
-                    if not addon.updateStepText then addon.stepUpdateList[n] = nil end
-                end
-            end
-            if updateText or addon.updateTipWindow then
-                addon.updateTipWindow = false
-                addon.RXPFrame.CurrentStepFrame.UpdateText()
-            end
-        elseif addon.updateBottomFrame then
-            event = event .. "/bottomFrame"
-            errorCount = 0
-            addon.RXPFrame.BottomFrame.UpdateFrame()
-            addon.RXPFrame.SetStepFrameAnchor()
-            updateError = false
-            skip = 1
-            return 'bottomFrame'
-        elseif cycle2 == 1 and next(addon.guideCache) then
-            event = event .. "/cache"
-            local loadGuide = true
-            for _, guide in pairs(addon.guides) do
-                if (loadGuide or guide.disablecaching) and not guide.steps then
-                    if addon.player.hardcore then
-                        LoadCache(guide)
-                        loadGuide = false
-                    else
-                        addon:FetchGuide(guide)
-                        guideLoaded = true
-                        local elapsed = debugprofilestop() - start
-                        if elapsed > 20 or framerate < 50 then loadGuide = false end
-                    end
-                end
-            end
-            if not next(addon.guideCache) and RXPCData.guideMetaData.enabledDungeons then
-                RXPCData.guideMetaData.enabledDungeons[addon.player.faction] = addon.dungeons or RXPCData.guideMetaData.enabledDungeons[addon.player.faction]
-            end
-        end
-    end
+    guideLoaded = result
+end
 
-    local cycle4 = skip % 4
-    local cycle16 = skip % 16
-    local cycle32 = skip % 32
-
-    if cycle4 == 0 then addon.tickers.CycleZero()
-    elseif cycle4 == 2 then addon.tickers.CycleThree()
-    elseif cycle4 == 3 then addon.tickers.CycleFour()
-    elseif cycle16 == 1 then addon.tickers.CycleSixteen()
-    elseif cycle32 == 29 then addon.tickers.CycleThirty()
-    elseif skip ~= 1 and not guideLoaded and addon.currentGuide then
-        event = event .. "/istep"
-        local max = #addon.currentGuide.steps
-        if stepCounter == RXPCData.currentStep then stepCounter = stepCounter + 4 end
-        local batchMax = 10
-        if (addon.settings.profile.updateFrequency or 0) > 75 then batchMax = 2 end
-        if updateStepIndex < 5 then
-            addon.RXPFrame.BottomFrame.UpdateFrame(nil, RXPCData.currentStep + updateStepIndex)
-        end
-        stepCounter = stepCounter + batchSize
-        for n = stepCounter, stepCounter + batchSize do
-            if n <= max then
-                local delayed = n
-                local f = CreateFrame("Frame")
-                local elapsed = 0
-                f:SetScript("OnUpdate", function(self, delta)
-                    elapsed = elapsed + delta
-                    if elapsed >= 0 then
-                        self:SetScript("OnUpdate", nil)
-                        addon.RXPFrame.BottomFrame.UpdateFrame(nil, delayed)
-                    end
-                end)
-            end
-        end
-        updateStepIndex = (updateStepIndex + 1) % 8
-        if stepCounter > max then
-            stepCounter = 1
-            local time = GetTime()
-            local tdiff = time - updateTimer
-            if tdiff > 10 then
-                batchSize = math.min(batchSize + 1 * (math.ceil(tdiff / 8)), batchMax)
-            elseif batchSize > 2 then
-                batchSize = batchSize - 1
-            end
-            updateTimer = time
-            skip = skip % 4096
-        end
-    end
+    ProcessIncrementalStepUpdates(guideLoaded)
     updateError = false
 end
 
