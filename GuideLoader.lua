@@ -154,7 +154,9 @@ end
 -- ============================================================
 
 function addon.AddGuide(guide)
-    if not guide then return false end
+    if not guide then
+        return false
+    end
     addon.GroupOverride(guide)
     local loadedGuide
     for _, checkGuide in ipairs(addon.guides) do
@@ -221,7 +223,9 @@ end
 -- ============================================================
 
 function addon.RemoveGuide(guideKey)
-    if not guideKey then return false end
+    if not guideKey then 
+        return false 
+    end
 
     local loadedGuide
     for _, checkGuide in ipairs(addon.guides) do
@@ -872,7 +876,6 @@ local function parseLine(linetext, step, parsingLogic)
     end
 
     local line = linetext
-    print("LINE:", linetext)
     local classtag
     line = line:gsub("%s*<<%s*(.+)", function(t)
         classtag = t
@@ -881,8 +884,9 @@ local function parseLine(linetext, step, parsingLogic)
     if classtag and not applies(classtag) then return end
 
     if step then
-        local steptag, assignment, value = line:match("^#(%S+)%s*(=?)%s*(.*)")
-        if steptag and steptag ~= "" then
+    local steptag, assignment, value = line:match("^#(%S+)%s*(=?)%s*(.*)")
+
+    if steptag then
             if not step[steptag] then
                 if assignment == "=" then
                     step[steptag] = parsingLogic[value]
@@ -912,18 +916,26 @@ else
         tinsert(t, arg)
     end
 end
-    if parsingLogic[tag] then
-            local result = parsingLogic[tag](linetext, text, unpack(t))
-            print("PARSE FUNC:", tag, result, type(result))
-            if not result then return end
-            -- FIX: Если результат строка, оборачиваем в таблицу
-            if type(result) == "string" then
-                element = {text = result, tag = tag, step = step}
-            else
-                element = result
-                element.tag = tag
-                element.step = step
-            end
+    local handler = parsingLogic[tag]
+    local unpack = unpack
+
+            if handler then
+                local result = handler(linetext, text, unpack(t))
+            if not result then
+    return
+end
+
+if type(result) == "string" then
+    element = {
+        text = result,
+        tag = tag,
+        step = step,
+    }
+else
+    element = result
+    element.tag = tag
+    element.step = step
+end
             -- FIX: .trainer без аргументов
             if element.tag == "trainer"
                 and not element.spellId
@@ -945,16 +957,11 @@ end
                 element.skill = spell
             end
             
-            if element.parent then
+            if element and element.parent then
                 element.parent = addon.lastObjective
             end
         else
-            local ltext
-            if #linetext > 150 then
-                ltext = linetext:sub(1, 150)
-            else
-                ltext = linetext
-            end
+            local ltext = (#linetext > 150) and linetext:sub(1, 150) or linetext
             addon.comms.PrettyPrint(L("Error parsing guide") .. " " ..
                 addon.currentGuideName ..
                 ": Invalid function call (." .. tag ..
@@ -963,12 +970,14 @@ end
         end
     end)
 
+    local firstChar = line:sub(1, 1)
+
     if text and not element then
         element = {text = text, textOnly = true, step = step}
-    elseif line:sub(1, 1) == "+" then
+    elseif firstChar == "+" then
         element = {text = line:sub(2, -1), step = step}
         addon.lastObjective = element
-    elseif line:sub(1, 1) == "*" then
+    elseif firstChar == "*" then
         element = {
             text = line:sub(2, -1):gsub("\
 ", "\n"),
@@ -978,36 +987,70 @@ end
         }
     end
 
-    if element and (element.text and not element.textOnly or element.dynamicText) then
-        addon.lastObjective = element
-    end
-
-    if not step then
         if element then
-            element.parent = nil
-        end
-    elseif step.elements and element then
-        tinsert(step.elements, element)
-        addon.lastElement = element
-    end
+            local isObjective = (element.text and not element.textOnly) or element.dynamicText
 
+            if isObjective then
+                addon.lastObjective = element
+            end
+        end
+
+        if element then
+            if not step then
+                element.parent = nil
+            elseif step.elements then
+                tinsert(step.elements, element)
+                addon.lastElement = element
+            end
+        end
     -- Очистка RXP тегов из текста элемента
     if element then
-        if element.text and type(element.text) == "string" then
-            element.text = element.text:gsub("|c%x%x%x%x%x%x%x%x", "")
-                :gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
-            element.text = element.text:gsub("%.target%s+.+$", "")
-            element.text = element.text:gsub("^%s+", ""):gsub("%s+$", "")
+        local text = element.text
+
+        if type(text) == "string" then
+            text = text:gsub("|c%x%x%x%x%x%x%x%x", "")
+                :gsub("|cRXP_[A-Z_]+_", "")
+                :gsub("|r", "")
+                :gsub("%.target%s+.+$", "")
+                :gsub("^%s+", "")
+                :gsub("%s+$", "")
+
+            element.text = text
         end
-        if element.tooltipText and type(element.tooltipText) == "string" then
-            element.tooltipText = element.tooltipText:gsub("|c%x%x%x%x%x%x%x%x", "")
-                :gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
-            element.tooltipText = element.tooltipText:gsub("|T[^|]+|t", "")
-            element.tooltipText = element.tooltipText:gsub("%.target%s+.+$", "")
-            element.tooltipText = element.tooltipText:gsub("^%s+", ""):gsub("%s+$", "")
+
+        local tooltip = element.tooltipText
+
+        if type(tooltip) == "string" then
+            tooltip = tooltip:gsub("|c%x%x%x%x%x%x%x%x", "")
+                :gsub("|cRXP_[A-Z_]+_", "")
+                :gsub("|r", "")
+                :gsub("|T[^|]+|t", "")
+                :gsub("%.target%s+.+$", "")
+                :gsub("^%s+", "")
+                :gsub("%s+$", "")
+
+            element.tooltipText = tooltip
         end
     end
+        -- ============================================================
+        -- Cache prepared data
+        -- ============================================================
 
+        if element then
+            local tag = element.tag
+
+            if tag then
+                element.func = addon.functions[tag]
+
+                if not element.icon then
+                    element.icon = addon.icons[tag]
+                end
+            end
+
+            if element.text then
+                element.displayText = element.text
+            end
+        end
     return element
 end
 
@@ -1019,7 +1062,9 @@ addon.ParseLine = parseLine
 
 function addon.ParseGuide(groupOrContent, text, defaultFor, isEmbedded, group, key)
     addon.lastObjective = nil
-    if not groupOrContent then return end
+    if not groupOrContent then 
+        return 
+    end
 
     local playerLevel = UnitLevel("player")
     local parentGroup
