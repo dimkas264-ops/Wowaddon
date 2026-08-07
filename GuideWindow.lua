@@ -4,6 +4,16 @@ local RXPGuides = addon.RXPGuides
 local _, class = UnitClass("player")
 local _G = _G
 local fmt, tinsert = string.format, table.insert
+local function SafeSetText(fontString, text)
+    text = text or ""
+
+    if fontString.__rxpLastText == text then
+        return
+    end
+
+    fontString.__rxpLastText = text
+    fontString:SetText(text)
+end
 
 -- 3.3.5: LibUIDropDownMenu может отсутствовать
 local LibDD
@@ -212,7 +222,6 @@ questUpdateFrame:RegisterEvent("QUEST_ACCEPTED")
 questUpdateFrame:RegisterEvent("QUEST_TURNED_IN")
 questUpdateFrame:RegisterEvent("QUEST_REMOVED")
 questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
-    print("RXP EVENT:", event)
 
     -- ПРЯМАЯ ПРОВЕРКА: вызываем accept для текущего шага
     local guide = addon.currentGuide
@@ -220,7 +229,6 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
         local currentStep = guide.steps[RXPCData.currentStep]
         if currentStep then
             for i, element in ipairs(currentStep.elements or {}) do
-                print("RXP DIRECT: Element " .. i .. " tag=" .. tostring(element.tag) .. " questId=" .. tostring(element.questId) .. " text=" .. tostring(element.text and element.text:sub(1, 30)))
         local func = addon.functions[element.tag]
 
         if func then
@@ -243,7 +251,6 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
                     end
                 end
             end
-            print("RXP DIRECT: allComplete=" .. tostring(allComplete))
 
             currentStep.completed = allComplete
 
@@ -261,12 +268,11 @@ questUpdateFrame:SetScript("OnEvent", function(self, event, ...)
     end
 
     -- Обновляем UI
-    if CurrentStepFrame and CurrentStepFrame.UpdateText then
-        CurrentStepFrame.UpdateText()
-    end
-    if addon.UpdateCurrentTask then
-        addon.UpdateCurrentTask()
-    end
+    addon.updateStepText = true
+
+if addon.UpdateCurrentTask then
+    addon.UpdateCurrentTask()
+end
 end)
 
 -- Прямой тикер для вызова LegacyUpdateLoop (AceTimer не работает в 3.3.5)
@@ -276,9 +282,9 @@ tickerFrame:SetScript("OnUpdate", function(self, elapsed)
     self.elapsed = self.elapsed + elapsed
     if self.elapsed >= 0.5 then
         self.elapsed = 0
-        if addon.LegacyUpdateLoop then
-            addon.LegacyUpdateLoop()
-        end
+        --if addon.LegacyUpdateLoop then
+            --addon.LegacyUpdateLoop()
+        --end
     end
 end)
 
@@ -403,107 +409,6 @@ local ScrollDelayFrame = CreateFrame("Frame")
 ScrollDelayFrame:Hide()
 
 -- ============================================================
--- Smooth scroll animation
--- ============================================================
-
-local ScrollAnimator = CreateFrame("Frame")
-
-ScrollAnimator:Hide()
-
-ScrollAnimator.startValue = 0
-ScrollAnimator.targetValue = 0
-ScrollAnimator.duration = 0.20
-ScrollAnimator.elapsed = 0
-
-function ScrollAnimator:Start(target)
-
-    self.startValue = ScrollBar:GetValue()
-    self.targetValue = target
-    self.elapsed = 0
-
-    self:Show()
-
-end
-
-ScrollAnimator:SetScript("OnUpdate", function(self, elapsed)
-
-    self.elapsed = self.elapsed + elapsed
-
-    local t = self.elapsed / self.duration
-
-    if t >= 1 then
-
-        ScrollBar:SetValue(self.targetValue)
-
-        self:Hide()
-
-        return
-
-    end
-
-    -- Ease Out Quad
-    t = 1 - (1 - t) * (1 - t)
-
-    local value =
-        self.startValue +
-        (self.targetValue - self.startValue) * t
-
-    ScrollBar:SetValue(value)
-
-end)
-ScrollBar:SetFrameLevel(ScrollFrame:GetFrameLevel() + 2)
-ScrollBar:Show()
-ScrollBar:EnableMouse(true)
-ScrollBar:SetMinMaxValues(0, 0)
-ScrollBar:SetValue(0)
-ScrollBar:SetValueStep(1)
-
--- Связь ScrollBar со ScrollFrame для 3.3.5
-ScrollBar:SetScript("OnValueChanged", function(self, value)
-    ScrollFrame:SetVerticalScroll(value)
-end)
-
-local track = _G[ScrollBar:GetName() .. "Track"]
-if track then track:SetAlpha(0) end
-
-ScrollBar:SetWidth(16)
-
--- Ползунок скроллбара скрыт, оставлены только стрелки
-local thumb = ScrollBar:GetThumbTexture()
-if thumb then
-    thumb:SetTexture(nil)
-    thumb:SetAlpha(0)
-end
-
-local texPath = "Interface\\AddOns\\RXPGuides\\Textures\\Scrollbar\\"
-
-local upButton = _G[ScrollBar:GetName() .. "ScrollUpButton"]
-if upButton then
-    upButton:SetNormalTexture(texPath .. "Up-Normal")
-    upButton:SetPushedTexture(texPath .. "Up-Pushed")
-    upButton:SetHighlightTexture(texPath .. "Up-Highlight")
-    upButton:SetDisabledTexture(texPath .. "Up-Disabled")
-    upButton:SetAlpha(1)
-    upButton:EnableMouse(true)
-    upButton:Show()
-end
-
-local downButton = _G[ScrollBar:GetName() .. "ScrollDownButton"]
-if downButton then
-    downButton:SetNormalTexture(texPath .. "Down-Normal")
-    downButton:SetPushedTexture(texPath .. "Down-Pushed")
-    downButton:SetHighlightTexture(texPath .. "Down-Highlight")
-    downButton:SetDisabledTexture(texPath .. "Down-Disabled")
-    downButton:SetAlpha(1)
-    downButton:EnableMouse(true)
-    downButton:Show()
-end
-
-ScrollFrame:SetScrollChild(ScrollChild)
-ScrollFrame:UpdateScrollChildRect()
-ScrollChild:SetWidth(295)
-
--- ============================================================
 -- Автоматическая прокрутка списка шагов
 -- ============================================================
 
@@ -607,12 +512,35 @@ Footer.cog:Show()
 RXPFrame.OnMouseDown = function(self, button)
     if addon.settings.profile.lockFrames then return end
     RXPFrame:StartMoving()
+    addon.frameMoving = true
 end
 
 RXPFrame.OnMouseUp = function(self, button)
     RXPFrame:StopMovingOrSizing()
-    addon.settings:SaveFramePositions()
-end
+    addon.frameMoving = false
+
+    addon.updateStepText = true
+    addon.updateBottomFrame = true
+    addon.updateWindowHeight = true
+
+    if addon.LegacyUpdateLoop then
+        addon.LegacyUpdateLoop()
+    else
+        if addon.updateStepText then
+            CurrentStepFrame.UpdateText()
+        end
+
+        if addon.updateBottomFrame then
+            BottomFrame.UpdateFrame()
+        end
+
+        if addon.updateWindowHeight then
+            addon.UpdateWindowHeight()
+            addon.updateWindowHeight = nil
+        end
+    end
+        addon.settings:SaveFramePositions()
+    end
 
 RXPFrame:SetScript("OnMouseDown", RXPFrame.OnMouseDown)
 RXPFrame:SetScript("OnMouseUp", RXPFrame.OnMouseUp)
@@ -775,8 +703,6 @@ function addon.ActiveStepElementPostClick(button)
                         CurrentStepFrame.UpdateText()
                     end
                     addon.UpdateCurrentTask()
-
-                    print("|cff33ff99RXP|r: Step " .. (step.index or "?") .. " skipped")
                 end
             end)
             button.skipTimerFrame = timerFrame
@@ -809,6 +735,11 @@ end
 
 function addon.BindActiveStepElement(frame, step, element, index)
     frame.step = step
+    if step.elements then
+    DEFAULT_CHAT_FRAME:AddMessage(
+        "Step "..n.." elements="..#step.elements
+    )
+end
     frame.element = element
     frame.index = index
     element.frame = frame
@@ -885,6 +816,8 @@ function addon.SetStep(n, n2, loopback)
     end
 
     addon.lastStepUpdate = GetTime()
+    addon.updateStepText = true
+    addon.updateWindowHeight = true
 
     if n > #guide.steps then
         if guide.loop then
@@ -1005,7 +938,6 @@ function addon.SetStep(n, n2, loopback)
     if #activeSteps == 0 then
         if n >= #guide.steps then
             if addon.functions and addon.functions.next then
-                print("RETURN")
                 return addon.functions.next()
             else
                 return
@@ -1041,15 +973,21 @@ function addon.SetStep(n, n2, loopback)
             stepframe.elements = {}
         end
 
-        stepframe:ClearAllPoints()
-        if anchor < 1 then
-            stepframe:SetPoint("TOPLEFT", CurrentStepFrame, 0, 0)
-            stepframe:SetPoint("TOPRIGHT", CurrentStepFrame, 0, 0)
-        else
-            stepframe:SetPoint("TOPLEFT", CurrentStepFrame.framePool[anchor], "BOTTOMLEFT", 0, -5)
-            stepframe:SetPoint("TOPRIGHT", CurrentStepFrame.framePool[anchor], "BOTTOMRIGHT", 0, -5)
-        end
+        local newAnchor = anchor
 
+        if stepframe.cachedAnchor ~= newAnchor then
+            stepframe.cachedAnchor = newAnchor
+
+            stepframe:ClearAllPoints()
+
+            if newAnchor < 1 then
+                stepframe:SetPoint("TOPLEFT", CurrentStepFrame, 0, 0)
+                stepframe:SetPoint("TOPRIGHT", CurrentStepFrame, 0, 0)
+            else
+                stepframe:SetPoint("TOPLEFT", CurrentStepFrame.framePool[newAnchor], "BOTTOMLEFT", 0, -5)
+                stepframe:SetPoint("TOPRIGHT", CurrentStepFrame.framePool[newAnchor], "BOTTOMRIGHT", 0, -5)
+            end
+        end
         anchor = c
 
         if not stepframe.number then
@@ -1065,25 +1003,9 @@ function addon.SetStep(n, n2, loopback)
 
         stepframe:SetBackdrop(RXPFrame.backdrop.edge)
 
-        print(
-            "STEP",
-            step.index,
-            "active=", tostring(step.active),
-            "skip=", tostring(RXPCData.stepSkip[step.index]),
-            "elements=", #(step.elements or {})
-        )
-
         local complete = true
 
         for _, el in ipairs(step.elements or {}) do
-
-            print(
-                "  ",
-                tostring(el.tag),
-                "completed=", tostring(el.completed),
-                "optional=", tostring(el.optional),
-                "text=", tostring(el.text)
-            )
 
             if not el.optional and not el.completed and not el.textOnly then
                 complete = false
@@ -1115,7 +1037,7 @@ function addon.SetStep(n, n2, loopback)
             stepframe.number:SetSize(10, 17)
         else
             stepframe.number:SetAlpha(1)
-            stepframe.number.text:SetText(titletext)
+            SafeSetText(stepframe.number.text, titletext)
             stepframe.number:SetSize(stepframe.number.text:GetStringWidth() + 10, 17)
         end
 
@@ -1227,7 +1149,10 @@ function addon.SetStep(n, n2, loopback)
         stepframe:SetHeight(frameHeight)
 
         if step.active then
-            stepframe:Show()
+            if not stepframe.cachedShown then
+                stepframe.cachedShown = true
+                stepframe:Show()
+            end
             if step.activeItems then
                 for k, v in pairs(step.activeItems) do addon.activeItems[k] = v end
             end
@@ -1238,7 +1163,10 @@ function addon.SetStep(n, n2, loopback)
                 for k, v in pairs(step.activeMacros) do addon.activeMacros[k] = v end
             end
         else
-            stepframe:Hide()
+            if stepframe.cachedShown ~= false then
+                stepframe.cachedShown = false
+                stepframe:Hide()
+            end
         end
     end
 
@@ -1251,19 +1179,26 @@ function addon.SetStep(n, n2, loopback)
     end
 
     addon.UpdateItemFrame()
-    CurrentStepFrame.UpdateText()
-    addon.updateSteps = true
-    if addon.UpdateTaskWaypoint then addon.UpdateTaskWaypoint() end
-    addon.UpdateMap()
-    addon.updateBottomFrame = true
 
-    if BottomFrame and BottomFrame.UpdateFrame then
-        BottomFrame.UpdateFrame()
-    end
-    
-    addon.UpdateWindowHeight()
-    addon.UpdateCurrentTask()
- -- print("|cff33ff99RXP|r: SetStep finished, currentStep=" .. tostring(RXPCData.currentStep) .. " activeSteps=" .. tostring(#activeSteps))
+        if addon.updateStepText then
+            CurrentStepFrame.UpdateText()
+        end
+
+        addon.updateSteps = true
+
+        if addon.UpdateTaskWaypoint then
+            addon.UpdateTaskWaypoint()
+        end
+
+        addon.UpdateMap()
+        addon.updateBottomFrame = true
+
+        if addon.updateWindowHeight then
+            addon.updateWindowHeight = true
+            addon.updateWindowHeight = nil
+        end
+
+        addon.UpdateCurrentTask()
 end
 
 -- ============================================================
@@ -1272,11 +1207,41 @@ end
 
 CurrentStepFrame.framePool = {}
 
+local currentFrameWidth = 0
+
+CurrentStepFrame:SetScript("OnSizeChanged", function(self, width)
+    currentFrameWidth = math.floor(width + 0.5)
+    addon.updateStepText = true
+end)
+
+local currentGuideWidth = 0
+
+GuideName:SetScript("OnSizeChanged", function(self, width)
+    currentGuideWidth = math.floor(width + 0.5)
+    addon.updateStepText = true
+end)
+
 function CurrentStepFrame.UpdateText()
-    print("RXP: UpdateText")
     addon.updateStepText = false
+    if addon.frameMoving then
+        addon.updateStepText = true
+        return
+    end
     local guide = addon.currentGuide
     if not guide then return end
+
+    local frameWidth = currentFrameWidth
+
+        if frameWidth == 0 then
+            frameWidth = math.floor(CurrentStepFrame:GetWidth() + 0.5)
+            currentFrameWidth = frameWidth
+        end
+    local guideWidth = currentGuideWidth
+
+        if guideWidth == 0 then
+            guideWidth = math.floor(GuideName:GetWidth() + 0.5)
+            currentGuideWidth = guideWidth
+        end
 
     CurrentStepFrame:Show()
     local totalHeight, frameHeight = 0, 0
@@ -1302,7 +1267,9 @@ function CurrentStepFrame.UpdateText()
             stepframe:SetMovable(false)
             anchor = c
 
-            stepframe.number.text:SetText(step.title or (fmt(L("Step %d"), loopStepIndex or 1)))
+            local title = step.title or (fmt(L("Step %d"), loopStepIndex or 1))
+
+            SafeSetText(stepframe.number.text, title)
             stepframe.number:SetSize(stepframe.number.text:GetStringWidth() + 10, 17)
 
             e = 0
@@ -1321,88 +1288,156 @@ function CurrentStepFrame.UpdateText()
                         elementFrame:SetHeight(1)
                         spacing = 1
                     elseif element.text then
-                        elementFrame:SetAlpha(1)
-                        elementFrame.button:ClearAllPoints()
-                        elementFrame.button:SetPoint("TOPLEFT", elementFrame, 6, -1)
-                        elementFrame.text:ClearAllPoints()
-                        elementFrame.text:SetPoint("TOPLEFT", elementFrame.button, "TOPRIGHT", 11, -1)
-                        elementFrame.text:SetPoint("RIGHT", stepframe, -5, 0)
+                        if elementFrame.cachedAlpha ~= 1 then
+                            elementFrame.cachedAlpha = 1
+                            elementFrame:SetAlpha(1)
+                        end
+                        if not elementFrame.cachedLayout then
+                            elementFrame.cachedLayout = true
+
+                            elementFrame.button:ClearAllPoints()
+                            elementFrame.button:SetPoint("TOPLEFT", elementFrame, 6, -1)
+
+                            elementFrame.text:ClearAllPoints()
+                            elementFrame.text:SetPoint("TOPLEFT", elementFrame.button, "TOPRIGHT", 11, -1)
+                            elementFrame.text:SetPoint("RIGHT", stepframe, -5, 0)
+                        end
 
                         if element.text ~= ' ' then
+                            local text = element.cachedDisplayText
                             local rawText = element.text
 
-                            -- Очищаем от RXP тегов
-                            -- Формат: .tag [id] >> Текст
-                            rawText = rawText:gsub("^%.%S+%s+%d*%,?%d*%s*>>%s*", "")
-                            -- Формат: >>Текст (без тега)
-                            rawText = rawText:gsub("^>>%s*", "")
-                            -- Убираем цветовые теги |c...|r
-                            rawText = rawText:gsub("|c%x%x%x%x%x%x%x%x", "")
-                            rawText = rawText:gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
-                            -- Убираем target теги
-                            rawText = rawText:gsub("%.target%s+.+$", "")
-                            -- Убираем лишние пробелы
-                            rawText = rawText:gsub("^%s+", ""):gsub("%s+$", "")
+                            if not text and rawText then
 
-                            local text = L(rawText)
-                            if addon.ReplaceNpcIds then
-                                text = addon.ReplaceNpcIds(text)
+                                rawText = rawText:gsub("^%.%S+%s+%d*%,?%d*%s*>>%s*", "")
+                                rawText = rawText:gsub("^>>%s*", "")
+                                rawText = rawText:gsub("|c%x%x%x%x%x%x%x%x", "")
+                                rawText = rawText:gsub("|cRXP_[A-Z_]+_", ""):gsub("|r", "")
+                                rawText = rawText:gsub("%.target%s+.+$", "")
+                                rawText = rawText:gsub("^%s+", ""):gsub("%s+$", "")
+
+                                text = L(rawText)
+
+                                if addon.ReplaceNpcIds then
+                                    text = addon.ReplaceNpcIds(text)
+                                end
+
+                                element.cachedDisplayText = text
                             end
-                            elementFrame.text:SetText(text)
+                            if elementFrame.cachedText ~= text then
+                                elementFrame.cachedText = text
+                                SafeSetText(elementFrame.text, text)
+                            end
                         else
                             element.requestFromServer = true
                         end
 
                         -- Устанавливаем ширину для переноса
-                        local availableWidth = stepframe:GetWidth() - 40
+                        local availableWidth = frameWidth - 40
                         if availableWidth > 50 then
-                            elementFrame.text:SetWidth(availableWidth)
+                            if elementFrame.cachedWidth ~= availableWidth then
+                                elementFrame.cachedWidth = availableWidth
+                                elementFrame.text:SetWidth(availableWidth)
+                            end
                         end
 
-                        h = math.ceil(elementFrame.text:GetStringHeight() * 1.1) + 1
-                        elementFrame:SetHeight(h)
+                        local textHeight = elementFrame.text:GetStringHeight()
+                        h = math.ceil(textHeight * 1.1) + 1
+                        if elementFrame.cachedHeight ~= h then
+                            elementFrame.cachedHeight = h
+                            elementFrame:SetHeight(h)
+                        end
                         frameHeight = frameHeight + h
 
-                        if elementFrame.text:GetWidth() > GuideName:GetWidth() + 600 then
-                            elementFrame:EnableMouse(false)
-                            elementFrame.button:EnableMouse(false)
+                        if elementFrame.text:GetWidth() > guideWidth + 600 then
+                            if elementFrame.cachedMouse ~= false then
+                                elementFrame.cachedMouse = false
+                                elementFrame:EnableMouse(false)
+                                elementFrame.button:EnableMouse(false)
+                            end
                         else
-                            elementFrame:EnableMouse(true)
-                            elementFrame.button:EnableMouse(true)
+                            if elementFrame.cachedMouse ~= true then
+                                elementFrame.cachedMouse = true
+                                elementFrame:EnableMouse(true)
+                                elementFrame.button:EnableMouse(true)
+                            end
                         end
 
-                        elementFrame.icon:ClearAllPoints()
-                        elementFrame.icon:SetPoint("TOPLEFT", elementFrame.button, "TOPRIGHT", 0, -1)
+                        if not elementFrame.cachedIconAnchor then
+                            elementFrame.cachedIconAnchor = true
+
+                            elementFrame.icon:ClearAllPoints()
+                            elementFrame.icon:SetPoint("TOPLEFT", elementFrame.button, "TOPRIGHT", 0, -1)
+                        end
 
                         -- Автоматическая галочка при выполнении
-                        if element.completed then
-                            elementFrame.button:SetChecked(true)
-                        else
-                            elementFrame.button:SetChecked(false)
+                        local checked = element.completed or false
+
+                        if elementFrame.cachedChecked ~= checked then
+                            elementFrame.cachedChecked = checked
+                            elementFrame.button:SetChecked(checked)
                         end
 
                         if element.textOnly then
-                            elementFrame.button:SetChecked(true)
-                            elementFrame.button:Hide()
+                            if elementFrame.cachedChecked ~= true then
+                                elementFrame.cachedChecked = true
+                                elementFrame.button:SetChecked(true)
+                            end
+
+                            if elementFrame.cachedButtonShown ~= false then
+                                elementFrame.cachedButtonShown = false
+                                elementFrame.button:Hide()
+                            end
+
                             element.completed = true
                         else
-                            elementFrame.button:Show()
+                            if elementFrame.cachedButtonShown ~= true then
+                                elementFrame.cachedButtonShown = true
+                                elementFrame.button:Show()
+                            end
                         end
                     else
-                        elementFrame:SetAlpha(0)
+                        if elementFrame.cachedAlpha ~= 0 then
+                            elementFrame.cachedAlpha = 0
+                            elementFrame:SetAlpha(0)
+                        end
                         elementFrame.button:Hide()
                         elementFrame:SetHeight(1)
                         element.completed = true
                         spacing = 1
                     end
 
-                    elementFrame:ClearAllPoints()
-                    if e == 1 then
-                        elementFrame:SetPoint("TOPLEFT", stepframe, 0, -10 + spacing)
-                        elementFrame:SetPoint("TOPRIGHT", stepframe, 0, -10 + spacing)
-                    else
-                        elementFrame:SetPoint("TOPLEFT", stepframe.elements[e - 1], "BOTTOMLEFT", 0, 0 + spacing)
-                        elementFrame:SetPoint("TOPRIGHT", stepframe.elements[e - 1], "BOTTOMRIGHT", 0, 0 + spacing)
+                    if elementFrame.cachedIndex ~= e then
+
+                        elementFrame.cachedIndex = e
+
+                        elementFrame:ClearAllPoints()
+
+                        if e == 1 then
+
+                            elementFrame:SetPoint("TOPLEFT", stepframe, 0, -10 + spacing)
+                            elementFrame:SetPoint("TOPRIGHT", stepframe, 0, -10 + spacing)
+
+                        else
+
+                            elementFrame:SetPoint(
+                                "TOPLEFT",
+                                stepframe.elements[e - 1],
+                                "BOTTOMLEFT",
+                                0,
+                                spacing
+                            )
+
+                            elementFrame:SetPoint(
+                                "TOPRIGHT",
+                                stepframe.elements[e - 1],
+                                "BOTTOMRIGHT",
+                                0,
+                                spacing
+                            )
+
+                        end
+
                     end
 
                     -- Guide text can supply its own |T...|t icon.  In that case
@@ -1410,30 +1445,54 @@ function CurrentStepFrame.UpdateText()
                     if element.tag and element.text and
                         not (type(element.text) == "string" and element.text:find("|T", 1, true)) then
                         icon = element.icon or addon.icons[element.tag] or ""
-                        print("RXP ICON:", element.tag, icon, element.text)
-                        elementFrame.icon:SetText(icon)
-                        elementFrame.icon:Show()
+                        if elementFrame.cachedIcon ~= icon then
+                            elementFrame.cachedIcon = icon
+                            elementFrame.icon:SetText(icon)
+                        end
+
+                        if not elementFrame.cachedIconShown then
+                            elementFrame.cachedIconShown = true
+                            elementFrame.icon:Show()
+                        end
                     else
-                        elementFrame.icon:Hide()
+                        if elementFrame.cachedIconShown ~= false then
+                            elementFrame.cachedIconShown = false
+                            elementFrame.icon:Hide()
+                        end
                     end
                 end
             end
 
             if not IsFrameShown(stepframe, step) then
-                stepframe:SetAlpha(0)
+                if stepframe.cachedAlpha ~= 0 then
+                    stepframe.cachedAlpha = 0
+                    stepframe:SetAlpha(0)
+                end
                 frameHeight = 1
-                stepframe:EnableMouse(false)
+                if stepframe.cachedMouse ~= false then
+                    stepframe.cachedMouse = false
+                    stepframe:EnableMouse(false)
+                end
             else
-                if stepframe:GetWidth() > GuideName:GetWidth() + 600 then
+                if frameWidth > guideWidth + 600 then
                     stepframe:EnableMouse(false)
                 else
-                    stepframe:EnableMouse(true)
+                    if stepframe.cachedMouse ~= true then
+                        stepframe.cachedMouse = true
+                        stepframe:EnableMouse(true)
+                    end
                 end
-                stepframe:SetAlpha(1)
+                if stepframe.cachedAlpha ~= 1 then
+                    stepframe.cachedAlpha = 1
+                    stepframe:SetAlpha(1)
+                end
                 frameHeight = math.ceil(frameHeight + 18)
             end
 
-            stepframe:SetHeight(frameHeight)
+            if stepframe.cachedHeight ~= frameHeight then
+                stepframe.cachedHeight = frameHeight
+                stepframe:SetHeight(frameHeight)
+            end
             if step.tip then frameHeight = -5 end
             totalHeight = totalHeight + frameHeight + 5
         end
@@ -1446,7 +1505,12 @@ function CurrentStepFrame.UpdateText()
     end
  end
 
- CurrentStepFrame:SetHeight(math.max(totalHeight - 5, 0.001))
+     local newHeight = math.max(totalHeight - 5, 0.001)
+
+    if CurrentStepFrame.cachedHeight ~= newHeight then
+        CurrentStepFrame.cachedHeight = newHeight
+        CurrentStepFrame:SetHeight(newHeight)
+    end
 end
 
 -- ============================================================
@@ -1589,19 +1653,15 @@ end
 -- Обновление одной строки BottomFrame
 --------------------------------------------------------
 
+local UpdateBottomCheckbox
+local UpdateBottomBackdrop
+local UpdateBottomNumberColor
+
 local function UpdateBottomRow(frame, step)
 
     if not frame or not step then
         return
     end
-
-    print(
-    "ROW",
-    step.index,
-    "completed=", tostring(step.completed),
-    "active=", tostring(step.active),
-    "current=", RXPCData.currentStep
-)
 
     local complete = (step.index < RXPCData.currentStep)
 
@@ -1613,51 +1673,131 @@ local function UpdateBottomRow(frame, step)
     -- Чекбокс
     ----------------------------------------------------
 
-    if frame.checkbox then
-        frame.checkbox:SetChecked(complete)
-    end
+        UpdateBottomCheckbox(frame, complete)
 
     ----------------------------------------------------
     -- Фон
     ----------------------------------------------------
 
-    if complete then
-
-        frame:SetBackdropColor(0.12,0.40,0.12,0.45)
-        frame:SetBackdropBorderColor(0.20,0.75,0.20,1)
-
-    else
-
-        frame:SetBackdropColor(unpack(addon.colors.background))
-        frame:SetBackdropBorderColor(unpack(addon.colors.border))
-
-    end
+        UpdateBottomBackdrop(frame, complete)
 
     ----------------------------------------------------
     -- Цвет номера
     ----------------------------------------------------
 
-    if frame.number then
+        UpdateBottomNumberColor(frame, complete)
 
-        if complete then
-            frame.number:SetTextColor(0.55,1.00,0.55)
-        else
-            frame.number:SetTextColor(0.70,0.70,0.75)
-        end
+end
 
+local function UpdateBottomText(frame, text)
+    if frame.cachedText ~= text then
+        frame.cachedText = text
+        SafeSetText(frame.text, text)
     end
 
+    local textWidth = math.max(251, (frame:GetWidth() or 0) - 38)
+
+    if frame.cachedWidth ~= textWidth then
+        frame.cachedWidth = textWidth
+        frame.text:SetWidth(textWidth)
+    end
+end
+
+UpdateBottomCheckbox = function(frame, complete)
+    if not frame.checkbox then
+        return
+    end
+
+    if frame.cachedChecked ~= complete then
+        frame.cachedChecked = complete
+        frame.checkbox:SetChecked(complete)
+    end
+end
+
+UpdateBottomBackdrop = function(frame, complete)
+    if frame.cachedComplete == complete then
+        return
+    end
+
+    frame.cachedComplete = complete
+
+    if complete then
+        frame:SetBackdropColor(0.12, 0.40, 0.12, 0.45)
+        frame:SetBackdropBorderColor(0.20, 0.75, 0.20, 1)
+    else
+        frame:SetBackdropColor(unpack(addon.colors.background))
+        frame:SetBackdropBorderColor(unpack(addon.colors.border))
+    end
+end
+
+UpdateBottomNumberColor = function(frame, complete)
+    if not frame.number then
+        return
+    end
+
+    if frame.cachedNumberComplete == complete then
+        return
+    end
+
+    frame.cachedNumberComplete = complete
+
+    if complete then
+        frame.number:SetTextColor(0.55, 1.00, 0.55)
+    else
+        frame.number:SetTextColor(0.70, 0.70, 0.75)
+    end
+end
+
+local function UpdateBottomVisibility(frame, shown)
+    if frame.cachedShown == shown then
+        return
+    end
+
+    frame.cachedShown = shown
+
+    if shown then
+        frame:Show()
+    else
+        frame:Hide()
+    end
+end
+
+local function UpdateBottomHeight(frame, height)
+    if frame.cachedHeight ~= height then
+        frame.cachedHeight = height
+        UpdateBottomHeight(frame, height)
+    end
+end
+
+local function UpdateBottomAlpha(frame, alpha)
+    if frame.cachedAlpha ~= alpha then
+        frame.cachedAlpha = alpha
+        frame:SetAlpha(alpha)
+    end
 end
 
 function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
     local level = UnitLevel("player")
 
     if not addon.currentGuide then
+
         addon.updateBottomFrame = false
         return
     end
 
-    if stepPos[0] and ((not self and stepn) or (self and self.step)) and IsFrameShown(self, self and self.step) then
+    if addon.frameMoving then
+        addon.updateBottomFrame = true
+        return
+    end
+
+            -- Нет изменений — нет обновления
+        if not stepn and not addon.updateBottomFrame then
+            return
+        end
+
+addon.updateBottomFrame = nil
+
+        if stepPos[0] and ((not self and stepn) or (self and self.step)) and IsFrameShown(self, self and self.step) then
         local stepNumber = stepn or self.step.index
         local frame = ScrollChild.framePool[stepNumber]
         local step = addon.currentGuide.steps[stepNumber]
@@ -1686,20 +1826,43 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     addon.Call(element.tag, addon.functions[element.tag], element, "WindowUpdate")
                 end
 
-                rawtext = element.tooltipText
-                if type(element.text) ~= "string" then
-                    if addon.settings.profile.debug then end
-                elseif not rawtext then
-                    local displayText = element.text
-                    displayText = displayText:gsub("^%.%S+%s*", "")
-                    displayText = displayText:gsub("^[%d%.%,%s]+", "")
-                    local userText = displayText:match(">>(.+)$")
-                    if userText then
-                        displayText = userText:trim()
-                    end
-                    rawtext = displayText
-                end
+if not element.cachedRawText then
 
+    local rawtext = element.tooltipText
+
+    if type(element.text) == "string" and not rawtext then
+
+        local displayText = element.text
+
+        displayText = displayText:gsub("^%.%S+%s*", "")
+        displayText = displayText:gsub("^[%d%.%,%s]+", "")
+
+        local userText = displayText:match(">>(.+)$")
+
+        if userText then
+            displayText = userText:trim()
+        end
+
+        rawtext = displayText
+    end
+
+    if rawtext and not element.hideTooltip then
+
+        if addon.ReplaceNpcIds then
+            rawtext = addon.ReplaceNpcIds(rawtext, element)
+        end
+
+        local icon = element.icon or addon.icons[element.tag] or ""
+
+        if icon ~= "" and not rawtext:find("|T", 1, true) then
+            rawtext = icon .. " " .. rawtext
+        end
+    end
+
+    element.cachedRawText = rawtext
+end
+
+rawtext = element.cachedRawText
                 if rawtext and not element.hideTooltip then
                     if addon.ReplaceNpcIds then
                         rawtext = addon.ReplaceNpcIds(rawtext, element)
@@ -1728,14 +1891,8 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         end
 
         if frame.text then
-            frame.text:SetText(text)
-            -- A frame can temporarily report zero width while the scroll child is
-            -- being relaid out.  Keep the normal list width in that case instead
-            -- of forcing the text into a 50-pixel column.
-            local textWidth = math.max(251, (frame:GetWidth() or 0) - 38)
-            frame.text:SetWidth(textWidth)
+            UpdateBottomText(frame, text)
         end
-
         --------------------------------------------------------
         -- Обновление чекбокса
         --------------------------------------------------------
@@ -1743,23 +1900,44 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         UpdateBottomRow(frame, step)
 
         if hideStep then
-            frame.text:Hide()
-            fheight = 1
-            frame:SetAlpha(0)
-        else
-            frame.text:Show()
-            local textHeight = frame.text:GetStringHeight()
-            if textHeight then
-                fheight = math.ceil(textHeight + 8)
-            else
-                fheight = 20
+            if frame.text:IsShown() then
+                frame.text:Hide()
             end
-            frame:SetAlpha(1)
+            fheight = 1
+            if frame.cachedAlpha ~= 0 then
+                frame.cachedAlpha = 0
+                UpdateBottomAlpha(frame, 0)
+            end
+        else
+            if not frame.text:IsShown() then
+    frame.text:Show()
+end
+
+if frame.cachedHeight == nil or frame.cachedHeightText ~= frame.cachedText then
+    frame.cachedHeightText = frame.cachedText
+
+    local textHeight = frame.text:GetStringHeight()
+
+    if textHeight then
+        frame.cachedHeight = math.ceil(textHeight + 8)
+    else
+        frame.cachedHeight = 20
+    end
+end
+
+            fheight = frame.cachedHeight or 20
+            if frame.cachedAlpha ~= 1 then
+                frame.cachedAlpha = 1
+                UpdateBottomAlpha(frame, 1)
+            end
         end
 
         local frameHeight = frame:GetHeight() or fheight or 20
         local hDiff = (fheight or 0) - frameHeight
-        frame:SetHeight(fheight)
+        if frame.lastAppliedHeight ~= fheight then
+    frame.lastAppliedHeight = fheight
+    UpdateBottomHeight(frame, fheight)
+end
 
         for n = stepNumber + 1, #stepPos do
             stepPos[n] = stepPos[n] + hDiff
@@ -1771,7 +1949,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
         local fheight
         local frame
         local step
-        local nframes = 0
+        nframes = 0
         local nsteps = addon.currentGuide and #addon.currentGuide.steps or 0
 
         for n = 1, nsteps do
@@ -1822,9 +2000,6 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     if not step then
                         return
                     end
-
-                    print("Step", step.index)
-
                 end)
 
                 frame.number = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1864,52 +2039,46 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
 
                 local text
 
-                for _, element in ipairs(step.elements or {}) do
-                    local rawtext
+for _, element in ipairs(step.elements or {}) do
+    local displayText
 
-                    if element.text then
-                        local displayText = element.text
+    if type(element.displayText) == "string" then
+        displayText = element.displayText
+    elseif type(element.cachedDisplayText) == "string" then
+        displayText = element.cachedDisplayText
+    elseif type(element.text) == "string" then
+        displayText = element.text
+    end
 
-                        if displayText:match("^%.") then
-                            local userText = displayText:match(">>(.+)$")
-                            if userText then
-                                displayText = userText:gsub("^%s+", ""):gsub("%s+$", "")
-                            else
-                                if element.tag == "goto" or element.tag == "waypoint" then
-                                    displayText = nil
-                                else
-                                    displayText = displayText:gsub("^%.%S+%s*", "")
-                                    displayText = displayText:gsub("^[%d%.%,%s]+", "")
-                                    if displayText == "" then
-                                        displayText = nil
-                                    end
-                                end
-                            end
-                        end
+    if type(displayText) == "string" then
+        displayText = displayText:gsub("|c%x%x%x%x%x%x%x%x", "")
+        displayText = displayText:gsub("|cRXP_[A-Z_]+_", "")
+        displayText = displayText:gsub("|r", "")
+        displayText = displayText:gsub("^%.%S+%s+%d*%,?%d*%s*>>%s*", "")
+        displayText = displayText:gsub("^>>%s*", "")
+        displayText = displayText:gsub("%.target%s+.+$", "")
+        displayText = displayText:gsub("^%s+", "")
+        displayText = displayText:gsub("%s+$", "")
 
-                        if displayText and displayText ~= "" then
-                            -- Добавляем иконку элемента (если еще не в тексте)
-                            local icon = element.icon or addon.icons[element.tag] or ""
-                            if icon ~= "" and not displayText:find("|T", 1, true) then
-                                displayText = icon .. " " .. displayText
-                            end
-                            rawtext = displayText
-                        end
-                    end
+        if addon.ReplaceNpcIds then
+            displayText = addon.ReplaceNpcIds(displayText, element)
+        end
 
-                                    if rawtext then
-                    if not text then
-                        text = rawtext
-                    else
-                        text = text .. "\n" .. rawtext
-                    end
-                end            end
+        if displayText ~= "" then
+            if text then
+                text = text .. "\n" .. displayText
+            else
+                text = displayText
+            end
+        end
+    end
+end
 
                 if not IsFrameShown(frame, step) then
-                    frame:Hide()
+                    UpdateBottomVisibility(frame, false)
                     fheight = 0.001
                 else
-                    frame:Show()
+                    UpdateBottomVisibility(frame, true)
 
                     frame.number:SetText(string.format("%02d", n))
 
@@ -1918,16 +2087,16 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
 
                     if text and text ~= "" then
                         if frame.text then
-                            frame.text:SetText(text)
-                            -- Явно задаём ширину для корректного переноса
-                            local textWidth = 251
-                            frame.text:SetWidth(textWidth)
+                            UpdateBottomText(frame, text)
                         end
+
+                        UpdateBottomRow(frame, step)
 
                         local textHeight = frame.text and frame.text:GetStringHeight() or 10
                         fheight = math.max(28, textHeight + 8)
                     else
-                        frame.text:SetText("")
+                        UpdateBottomText(frame, "")
+                        UpdateBottomRow(frame, step)
                         fheight = 28
                     end
                 end
@@ -1943,7 +2112,10 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                     frame:SetPoint("TOPRIGHT", ScrollChild.framePool[n - 1], "BOTTOMRIGHT", 0, -1)
                 end
 
-                frame:SetHeight(fheight)
+                if frame.cachedHeight ~= fheight then
+                    frame.cachedHeight = fheight
+                    frame:SetHeight(fheight)
+                end
                 totalHeight = totalHeight + fheight
                 nframes = nframes + 1
             end
@@ -1955,7 +2127,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
             end
         end
 
-        ScrollChild:SetHeight(totalHeight)
+        ScrollChild:SetHeight(totalHeight or 1)
         stepPos[0] = totalHeight
 
         -- Обновляем ScrollBar
@@ -1983,8 +2155,8 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
                 stepPos[n] = (n - 1) * 28
             end
         end
-    end
-        addon.UpdateWindowHeight()
+
+        addon.updateWindowHeight = true
 
         if lastBottomFrameStep and RXPCData.currentStep ~= lastBottomFrameStep then
 
@@ -2001,7 +2173,7 @@ function BottomFrame.UpdateFrame(self, stepn, startFrom, skip)
 
         end
 
-        --------------------------------------------------------
+--------------------------------------------------------
 -- Синхронизация строк BottomFrame
 --------------------------------------------------------
 
@@ -2016,7 +2188,7 @@ for i = 1, #ScrollChild.framePool do
 end
 
     lastBottomFrameStep = RXPCData.currentStep
-
+end
 end
 
 function addon:LoadGuide(guide, isLoading)
@@ -2079,7 +2251,6 @@ function addon:LoadGuide(guide, isLoading)
 
         BottomFrame:Show()
         addon.updateBottomFrame = true
-        BottomFrame.UpdateFrame()
 
         -- Обновляем подзаголовок с текущей задачей
         addon.UpdateCurrentTask()
