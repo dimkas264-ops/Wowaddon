@@ -12,6 +12,7 @@
 
 # Core
 RXPGuides.lua
+Engine.lua
 
 # Locale
 locale\enUS.lua
